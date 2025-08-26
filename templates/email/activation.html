@@ -1,28 +1,136 @@
-{% load i18n %}
 
+{% load i18n %}
+{% load static %}
 {% block subject %}
 {% blocktrans %}Account activation on {{ site_name }}{% endblocktrans %}
 {% endblock subject %}
 
 {% block text_body %}
 {% blocktrans %}You're receiving this email because you need to finish activation process on {{ site_name }}.{% endblocktrans %}
-
 {% trans "Please go to the following page to activate account:" %}
 {{ url|safe }}
-
 {% trans "Thanks for using our site!" %}
-
 {% blocktrans %}The {{ site_name }} team{% endblocktrans %}
 {% endblock text_body %}
 
 {% block html_body %}
-<p>{% blocktrans %}You're receiving this email because you need to finish activation process on {{ site_name }}.{% endblocktrans %}</p>
-
-<p>{% trans "Please go to the following page to activate account:" %}</p>
-<p><a href="{{ url|safe }}">{{ url|safe }}</a></p>
-
-<p>{% trans "Thanks for using our site!" %}</p>
-
-<p>{% blocktrans %}The {{ site_name }} team{% endblocktrans %}</p>
-
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Activation</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Arial', 'Helvetica Neue', Helvetica, sans-serif;
+            background-color: #f8f9fa;
+            color: #333333;
+            line-height: 1.6;
+        }
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 30px 20px;
+            text-align: center;
+        }
+        .logo {
+            max-width: 150px;
+            height: auto;
+            margin-bottom: 10px;
+        }
+        .header h1 {
+            color: #ffffff;
+            margin: 0;
+            font-size: 24px;
+            font-weight: 300;
+        }
+        .content {
+            padding: 40px 30px;
+        }
+        .content h2 {
+            color: #2c3e50;
+            font-size: 22px;
+            margin-bottom: 20px;
+            font-weight: 400;
+        }
+        .content p {
+            margin-bottom: 20px;
+            font-size: 16px;
+            color: #555555;
+        }
+        .cta-button {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #ffffff;
+            padding: 15px 30px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: 600;
+            font-size: 16px;
+            margin: 20px 0;
+            transition: all 0.3s ease;
+        }
+        .cta-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        .footer {
+            background-color: #f8f9fa;
+            padding: 20px 30px;
+            text-align: center;
+            border-top: 1px solid #e9ecef;
+        }
+        .footer p {
+            margin: 0;
+            color: #6c757d;
+            font-size: 14px;
+        }
+        .divider {
+            height: 1px;
+            background: linear-gradient(to right, transparent, #e9ecef, transparent);
+            margin: 30px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            <img src="{% static 'images/logo.png' %}" alt="{{ site_name }} Logo" class="logo">
+            <h1>{% trans "Account Activation" %}</h1>
+        </div>
+        
+        <div class="content">
+            <h2>{% trans "Welcome to" %} {{ site_name }}!</h2>
+            <p>{% blocktrans %}You're receiving this email because you need to finish the activation process for your account on {{ site_name }}.{% endblocktrans %}</p>
+            
+            <p>{% trans "To complete your registration and start using our services, please click the button below:" %}</p>
+            
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="{{ url|safe }}" class="cta-button">{% trans "Activate My Account" %}</a>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <p style="font-size: 14px; color: #6c757d;">
+                {% trans "If the button doesn't work, you can copy and paste this link into your browser:" %}<br>
+                <a href="{{ url|safe }}" style="color: #667eea; word-break: break-all;">{{ url|safe }}</a>
+            </p>
+        </div>
+        
+        <div class="footer">
+            <p>{% trans "Thanks for choosing" %} {{ site_name }}!</p>
+            <p>{% blocktrans %}The {{ site_name }} team{% endblocktrans %}</p>
+        </div>
+    </div>
+</body>
+</html>
 {% endblock html_body %}

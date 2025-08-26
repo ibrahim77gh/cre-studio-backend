@@ -1,21 +1,130 @@
 {% load i18n %}
-
+{% load static %}
 {% block subject %}
 {% blocktrans %}{{ site_name }} - Your account has been successfully created and activated!{% endblocktrans %}
 {% endblock %}
 
 {% block text_body %}
 {% trans "Your account has been created and is ready to use!" %}
-
 {% trans "Thanks for using our site!" %}
-
 {% blocktrans %}The {{ site_name }} team{% endblocktrans %}
 {% endblock text_body %}
 
 {% block html_body %}
-<p>{% trans "Your account has been created and is ready to use!" %}</p>
-
-<p>{% trans "Thanks for using our site!" %}</p>
-
-<p>{% blocktrans %}The {{ site_name }} team{% endblocktrans %}</p>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Confirmed</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Arial', 'Helvetica Neue', Helvetica, sans-serif;
+            background-color: #f8f9fa;
+            color: #333333;
+            line-height: 1.6;
+        }
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            padding: 30px 20px;
+            text-align: center;
+        }
+        .logo {
+            max-width: 150px;
+            height: auto;
+            margin-bottom: 10px;
+        }
+        .header h1 {
+            color: #ffffff;
+            margin: 0;
+            font-size: 24px;
+            font-weight: 300;
+        }
+        .success-icon {
+            width: 60px;
+            height: 60px;
+            background-color: #ffffff;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin: 20px 0 10px;
+        }
+        .success-icon::after {
+            content: "✓";
+            color: #28a745;
+            font-size: 30px;
+            font-weight: bold;
+        }
+        .content {
+            padding: 40px 30px;
+            text-align: center;
+        }
+        .content h2 {
+            color: #2c3e50;
+            font-size: 22px;
+            margin-bottom: 20px;
+            font-weight: 400;
+        }
+        .content p {
+            margin-bottom: 20px;
+            font-size: 16px;
+            color: #555555;
+        }
+        .footer {
+            background-color: #f8f9fa;
+            padding: 20px 30px;
+            text-align: center;
+            border-top: 1px solid #e9ecef;
+        }
+        .footer p {
+            margin: 0;
+            color: #6c757d;
+            font-size: 14px;
+        }
+        .highlight-box {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-radius: 5px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            <img src="{% static 'images/logo.png' %}" alt="{{ site_name }} Logo" class="logo">
+            <div class="success-icon"></div>
+            <h1>{% trans "Account Activated!" %}</h1>
+        </div>
+        
+        <div class="content">
+            <h2>{% trans "Congratulations!" %}</h2>
+            
+            <div class="highlight-box">
+                <p><strong>{% trans "Your account has been successfully created and activated!" %}</strong></p>
+                <p>{% trans "You can now access all features and start using our platform." %}</p>
+            </div>
+            
+            <p>{% trans "We're excited to have you as part of our community. If you have any questions or need assistance, feel free to reach out to our support team." %}</p>
+        </div>
+        
+        <div class="footer">
+            <p>{% trans "Thanks for choosing" %} {{ site_name }}!</p>
+            <p>{% blocktrans %}The {{ site_name }} team{% endblocktrans %}</p>
+        </div>
+    </div>
+</body>
+</html>
 {% endblock html_body %}
