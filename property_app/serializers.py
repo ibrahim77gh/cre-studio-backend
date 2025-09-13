@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import CampaignBudget, CreativeAsset, Property, PropertyGroup, Campaign
+from .models import CampaignBudget,CreativeAsset, Property, PropertyGroup, Campaign
 
 class PropertyGroupSerializer(serializers.ModelSerializer):
     class Meta:
@@ -91,20 +91,3 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
             for asset_file in creative_assets:
                 CreativeAsset.objects.create(campaign=campaign, file=asset_file)
         return campaign
-
-
-class CampaignBudgetSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = CampaignBudget
-        fields = [
-            "creative_charges_deductions",
-            "total_gross",
-            "total_net",
-            "meta_gross",
-            "meta_net",
-            "display_gross",
-            "display_net",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = ["created_at", "updated_at"]

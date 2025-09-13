@@ -70,24 +70,6 @@ class CampaignSubmissionViewSet(viewsets.ModelViewSet):
         if subdomain:
             queryset = queryset.filter(property__subdomain=subdomain)
         return queryset
-    
-    @action(
-        detail=True,
-        methods=["post", "put", "patch"],
-        url_path="budget",
-        permission_classes=[IsAuthenticated, IsClientUser],
-    )
-    def budget(self, request, pk=None):
-        """
-        Create or update the CampaignBudget for the given campaign (pk).
-        Send any subset of budget fields in the request body (partial updates allowed).
-        """
-        campaign = self.get_object()  # ensures campaign exists and permission checks run
-        budget_obj, created = CampaignBudget.objects.get_or_create(campaign=campaign)
-        serializer = self.CampaignBudgetSerializer(budget_obj, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
 
 class PropertyGroupViewSet(viewsets.ModelViewSet):
