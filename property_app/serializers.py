@@ -14,9 +14,7 @@ class PropertySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Property
-        fields = [
-            'id', 'name', 'slug', 'property_group', 'property_group_id', 'created_at', 'updated_at'
-        ]
+        fields = "__all__"
 
 
 class CreativeAssetSerializer(serializers.ModelSerializer):

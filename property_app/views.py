@@ -22,14 +22,15 @@ class PropertyViewSet(viewsets.ModelViewSet):
         """
         - Superuser: return all properties
         - Group admin: return all properties for groups where the user has group_admin role
-        - Otherwise: return properties the user is explicitly a member of
+        - Property admin: return properties where the user has property_admin role
+        - Otherwise: return no properties
         """
         user = self.request.user
 
         if user.is_superuser:
             qs = Property.objects.all()
         else:
-            # groups where user is a group_admin
+            # Check for group admin roles
             group_ids_qs = UserPropertyMembership.objects.filter(
                 user=user,
                 role=PropertyUserRole.GROUP_ADMIN,
@@ -39,20 +40,16 @@ class PropertyViewSet(viewsets.ModelViewSet):
             if group_ids_qs.exists():
                 qs = Property.objects.filter(property_group_id__in=group_ids_qs)
             else:
-                # fallback to properties the user is a member of (if any)
+                # Check for property admin roles
                 prop_ids_qs = UserPropertyMembership.objects.filter(
                     user=user,
+                    role=PropertyUserRole.PROPERTY_ADMIN,
                     property__isnull=False
                 ).values_list("property_id", flat=True)
                 if prop_ids_qs.exists():
                     qs = Property.objects.filter(id__in=prop_ids_qs)
                 else:
                     qs = Property.objects.none()
-
-        # preserve optional filtering by subdomain if provided
-        subdomain = self.request.query_params.get("subdomain")
-        if subdomain:
-            qs = qs.filter(subdomain=subdomain)
 
         return qs
 
