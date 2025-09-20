@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import CampaignBudget,CreativeAsset, Property, PropertyGroup, Campaign
+from .models import CampaignBudget, CreativeAsset, Property, PropertyGroup, Campaign, ClientNotification, CampaignDate
 import json
 
 class PropertyGroupSerializer(serializers.ModelSerializer):
@@ -21,8 +21,18 @@ class PropertySerializer(serializers.ModelSerializer):
 class CreativeAssetSerializer(serializers.ModelSerializer):
     class Meta:
         model = CreativeAsset
-        fields = ["id", "file", "uploaded_at"]
+        fields = ["id", "file", "uploaded_at", "asset_type", "platform_type"]
         read_only_fields = ["id", "uploaded_at"]
+
+
+class CampaignDateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CampaignDate
+        fields = [
+            "id", "campaign", "date", "date_type", "title", "description",
+            "is_all_day", "start_time", "end_time", "created_at", "updated_at"
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
 
 
 
@@ -57,6 +67,10 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
         read_only=True
     )
 
+    # Campaign dates
+    campaign_dates = CampaignDateSerializer(many=True, required=False)
+    event_dates = CampaignDateSerializer(many=True, read_only=True)
+
     # 🔥 budget is writable now
     budget = CampaignBudgetSerializer(required=False)
 
@@ -68,8 +82,8 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
             'user',
             'pmcb_form_data',
             'center',
-            'meta_campaign_dates',
-            'meta_assets',
+            'start_date',
+            'end_date',
             'meta_main_copy_options',
             'meta_headline',
             'meta_desktop_display_copy',
@@ -77,8 +91,6 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
             'meta_call_to_action',
             'meta_notes',
             'meta_ready',
-            'google_campaign_dates',
-            'google_assets',
             'google_headlines',
             'google_long_headline',
             'google_descriptions',
@@ -90,6 +102,8 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
             'updated_at',
             'creative_assets',
             'creative_assets_list',
+            'campaign_dates',
+            'event_dates',
             'budget',
         ]
         read_only_fields = [
@@ -98,12 +112,15 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
             'creative_assets_list',
+            'event_dates',
         ]
 
     def create(self, validated_data):
+        from .models import CampaignDate
         print(validated_data)
 
         creative_assets = validated_data.pop('creative_assets', [])
+        campaign_dates_data = validated_data.pop('campaign_dates', [])
         pmcb_data = validated_data.pop('pmcb_form_data', {})
         budget_data = pmcb_data.pop('budget', None)
 
@@ -116,6 +133,10 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
         # Handle creative assets
         for asset_file in creative_assets:
             CreativeAsset.objects.create(campaign=campaign, file=asset_file)
+
+        # Handle campaign dates
+        for date_data in campaign_dates_data:
+            CampaignDate.objects.create(campaign=campaign, **date_data)
 
         # Handle budget safely
         if budget_data:
@@ -133,6 +154,7 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         creative_assets = validated_data.pop("creative_assets", [])
+        campaign_dates_data = validated_data.pop("campaign_dates", [])
         request = self.context.get("request")
 
         # Extract raw budget JSON from request.data if present
@@ -153,6 +175,13 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
             for asset_file in creative_assets:
                 CreativeAsset.objects.create(campaign=campaign, file=asset_file)
 
+        # Handle campaign dates
+        if campaign_dates_data:
+            # Remove existing dates and create new ones
+            campaign.campaign_dates.all().delete()
+            for date_data in campaign_dates_data:
+                CampaignDate.objects.create(campaign=campaign, **date_data)
+
         # Handle budget
         if budget_data is not None:
             budget, _ = CampaignBudget.objects.get_or_create(campaign=campaign)
@@ -163,3 +192,10 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
 
             budget.save()
         return campaign
+
+
+class ClientNotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ClientNotification
+        fields = ['id', 'user', 'campaign', 'message', 'is_read', 'created_at']
+        read_only_fields = ['id', 'user', 'created_at']
