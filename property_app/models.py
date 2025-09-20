@@ -124,10 +124,12 @@ class Campaign(models.Model):
     )
     pmcb_form_data = models.JSONField(null=True, blank=True)
     center = models.CharField(max_length=255, blank=True, null=True)
+    
+    # Campaign timeline
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
 
     # Fields for Meta Ads Tab
-    meta_campaign_dates = models.CharField(max_length=255, blank=True, null=True)
-    meta_assets = models.TextField(max_length=255, blank=True, null=True)
     meta_main_copy_options = models.JSONField(null=True, blank=True) # Stores a list of texts
     meta_headline = models.TextField(blank=True, null=True) # Using TextField to avoid limits
     meta_desktop_display_copy = models.TextField(blank=True, null=True)
@@ -137,8 +139,6 @@ class Campaign(models.Model):
     meta_ready = models.TextField(blank=True, null=True)
 
     # Fields for Google Display Tab
-    google_campaign_dates = models.CharField(max_length=255, blank=True, null=True)
-    google_assets = models.CharField(max_length=255, blank=True, null=True)
     google_headlines = models.JSONField(null=True, blank=True) # Using JSONField to store multiple headlines as a list
     google_long_headline = models.TextField(blank=True, null=True)
     google_descriptions = models.JSONField(null=True, blank=True) # Using JSONField to store multiple descriptions as a list
@@ -157,6 +157,65 @@ class Campaign(models.Model):
 
     def __str__(self):
         return f"Campaign for {self.property.name} - {self.pk}"
+    
+    def get_event_dates(self):
+        """Get all event dates for this campaign"""
+        return self.campaign_dates.filter(date_type='event').order_by('date')
+    
+    def get_all_dates(self):
+        """Get all dates for this campaign"""
+        return self.campaign_dates.all().order_by('date')
+
+
+class CampaignDateType(models.TextChoices):
+    EVENT = "event", "Event Date"
+    MILESTONE = "milestone", "Milestone"
+    DEADLINE = "deadline", "Deadline"
+    PROMOTION = "promotion", "Promotion Date"
+
+
+class CampaignDate(models.Model):
+    """
+    Represents important dates for a campaign (events, milestones, deadlines, etc.)
+    """
+    campaign = models.ForeignKey(
+        Campaign,
+        on_delete=models.CASCADE,
+        related_name='campaign_dates'
+    )
+    date = models.DateField()
+    date_type = models.CharField(
+        max_length=20,
+        choices=CampaignDateType.choices,
+        default=CampaignDateType.EVENT
+    )
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    is_all_day = models.BooleanField(default=True)
+    start_time = models.TimeField(null=True, blank=True)
+    end_time = models.TimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['date', 'start_time']
+        verbose_name = "Campaign Date"
+        verbose_name_plural = "Campaign Dates"
+
+    def __str__(self):
+        return f"{self.title} - {self.date} ({self.get_date_type_display()})"
+
+    @property
+    def is_past(self):
+        """Check if this date is in the past"""
+        from django.utils import timezone
+        return self.date < timezone.now().date()
+
+    @property
+    def is_today(self):
+        """Check if this date is today"""
+        from django.utils import timezone
+        return self.date == timezone.now().date()
 
 
 class CampaignBudget(models.Model):
@@ -197,6 +256,8 @@ class CreativeAsset(models.Model):
     )
     file = models.FileField(upload_to="campaign_assets/")
     uploaded_at = models.DateTimeField(auto_now_add=True)
+    asset_type = models.CharField(max_length=255, blank=True, null=True)  # e.g., image, video, etc.
+    platform_type = models.CharField(max_length=255, blank=True, null=True)
 
     def __str__(self):
         return f"Asset {self.id} for Campaign {self.campaign_id}"

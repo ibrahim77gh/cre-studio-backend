@@ -2,15 +2,17 @@ from property_app.serializers import (
     CampaignSubmissionSerializer,
     PropertyGroupSerializer,
     PropertySerializer,
-    CampaignSubmissionSerializer
+    CampaignSubmissionSerializer,
+    ClientNotificationSerializer
 )
-from .models import Campaign, Property, PropertyGroup, UserPropertyMembership, PropertyUserRole
+from .models import Campaign, Property, PropertyGroup, UserPropertyMembership, PropertyUserRole, ClientNotification
 from rest_framework import permissions, viewsets
 from rest_framework.exceptions import PermissionDenied
 from authentication.permissions import IsCREUser, IsPropertyGroupUser, IsPropertyUser, IsClientUser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.decorators import action
+from rest_framework.response import Response
 
 
 class PropertyViewSet(viewsets.ModelViewSet):
@@ -77,3 +79,21 @@ class PropertyGroupViewSet(viewsets.ModelViewSet):
         property_group_id = self.kwargs.get('pk', None)
         if property_group_id:
             return PropertyGroup.objects.filter(id=property_group_id)
+
+
+class ClientNotificationViewSet(viewsets.ModelViewSet):
+    serializer_class = ClientNotificationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return ClientNotification.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def mark_as_read(self, request, pk=None):
+        notification = self.get_object()
+        notification.is_read = True
+        notification.save()
+        return Response({'status': 'Notification marked as read'})
