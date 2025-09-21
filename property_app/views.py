@@ -8,7 +8,6 @@ from property_app.serializers import (
 from .models import Campaign, Property, PropertyGroup, UserPropertyMembership, PropertyUserRole, ClientNotification
 from rest_framework import permissions, viewsets
 from rest_framework.exceptions import PermissionDenied
-from authentication.permissions import IsCREUser, IsPropertyGroupUser, IsPropertyUser, IsClientUser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.decorators import action

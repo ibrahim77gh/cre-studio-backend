@@ -98,13 +98,6 @@ class UserPropertyMembership(models.Model):
             raise ValidationError("A membership must be linked to either a property or a property group.")
         if self.property and self.property_group:
             raise ValidationError("A membership cannot be linked to both a property and a property group.")
-        
-    def is_property_admin(self, property):
-        if self.is_superuser:
-            return True
-        return self.property_memberships.filter(
-            property=property, role=PropertyUserRole.PROPERTY_ADMIN
-        ).exists()
 
 
 class Campaign(models.Model):

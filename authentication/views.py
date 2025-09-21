@@ -1,16 +1,23 @@
 from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import status, viewsets, filters
+from rest_framework.decorators import action
 from djoser.social.views import ProviderAuthView
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
     TokenVerifyView
 )
-from .serializers import UserSerializer
+from .serializers import (
+    UserSerializer, 
+    UserManagementCreateSerializer,
+    UserManagementUpdateSerializer,
+    UserManagementListSerializer
+)
 from .models import CustomUser
-from rest_framework import viewsets
+from .permissions import CanManageUsers
+from property_app.models import PropertyUserRole, UserPropertyMembership
 
 
 def set_tokens(response):
@@ -89,6 +96,244 @@ class LogoutView(APIView):
         return response
 
 
+class UserManagementViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for comprehensive user management with hierarchical permissions.
+    
+    Supports:
+    - Creating users with appropriate roles
+    - Updating user information and roles  
+    - Deleting users (with restrictions)
+    - Listing users based on permissions
+    - Filtering users by role, property, etc.
+    """
+    permission_classes = [CanManageUsers]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['email', 'first_name', 'last_name']
+    ordering_fields = ['email', 'first_name', 'last_name', 'date_joined']
+    ordering = ['-date_joined']
+    
+    def get_queryset(self):
+        """
+        Return users that the current user can manage.
+        """
+        user = self.request.user
+        
+        # Superusers can see all users
+        if user.is_superuser:
+            return CustomUser.objects.all()
+        
+        # Get the user's memberships to determine what they can manage
+        user_memberships = user.property_memberships.all()
+        manageable_user_ids = set()
+        
+        for membership in user_memberships:
+            if membership.role == PropertyUserRole.GROUP_ADMIN:
+                # Group admins can manage users in their property group
+                if membership.property_group:
+                    # Get all properties in this group
+                    group_properties = membership.property_group.properties.all()
+                    
+                    # Get users with memberships in these properties
+                    group_property_users = CustomUser.objects.filter(
+                        property_memberships__property__in=group_properties,
+                        property_memberships__role__in=[PropertyUserRole.PROPERTY_ADMIN, PropertyUserRole.TENANT]
+                    )
+                    
+                    # Get users with group memberships
+                    group_users = CustomUser.objects.filter(
+                        property_memberships__property_group=membership.property_group,
+                        property_memberships__role__in=[PropertyUserRole.PROPERTY_ADMIN, PropertyUserRole.TENANT]
+                    )
+                    
+                    manageable_user_ids.update(group_property_users.values_list('id', flat=True))
+                    manageable_user_ids.update(group_users.values_list('id', flat=True))
+                    
+            elif membership.role == PropertyUserRole.PROPERTY_ADMIN:
+                # Property admins can manage tenants in their property
+                if membership.property:
+                    property_tenants = CustomUser.objects.filter(
+                        property_memberships__property=membership.property,
+                        property_memberships__role=PropertyUserRole.TENANT
+                    )
+                    manageable_user_ids.update(property_tenants.values_list('id', flat=True))
+        
+        # Return queryset of manageable users
+        if manageable_user_ids:
+            return CustomUser.objects.filter(id__in=manageable_user_ids)
+        else:
+            return CustomUser.objects.none()
+    
+    def get_serializer_class(self):
+        """
+        Return appropriate serializer based on action.
+        """
+        if self.action == 'create':
+            return UserManagementCreateSerializer
+        elif self.action in ['update', 'partial_update']:
+            return UserManagementUpdateSerializer
+        elif self.action == 'list':
+            return UserManagementListSerializer
+        else:
+            return UserManagementListSerializer
+    
+    def perform_destroy(self, instance):
+        """
+        Custom delete logic - mark as inactive instead of hard delete
+        for data integrity, or allow hard delete for superusers.
+        """
+        if self.request.user.is_superuser:
+            # Superusers can hard delete
+            super().perform_destroy(instance)
+        else:
+            # Others just deactivate
+            instance.is_active = False
+            instance.save()
+    
+    @action(detail=True, methods=['post'])
+    def activate(self, request, pk=None):
+        """
+        Activate a deactivated user.
+        """
+        user = self.get_object()
+        
+        if not user.is_active:
+            user.is_active = True
+            user.save()
+            return Response({'status': 'User activated'})
+        else:
+            return Response(
+                {'error': 'User is already active'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+    @action(detail=True, methods=['post'])
+    def deactivate(self, request, pk=None):
+        """
+        Deactivate a user.
+        """
+        user = self.get_object()
+        
+        # Prevent users from deactivating themselves
+        if user == request.user:
+            return Response(
+                {'error': 'Cannot deactivate yourself'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if user.is_active:
+            user.is_active = False
+            user.save()
+            return Response({'status': 'User deactivated'})
+        else:
+            return Response(
+                {'error': 'User is already inactive'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+    @action(detail=False, methods=['get'])
+    def my_manageable_scopes(self, request):
+        """
+        Return the properties and groups that the current user can manage.
+        Useful for frontend dropdowns.
+        """
+        user = request.user
+        
+        if user.is_superuser:
+            from property_app.models import Property, PropertyGroup
+            return Response({
+                'can_manage_all': True,
+                'properties': [
+                    {'id': p.id, 'name': p.name, 'property_group': {
+                        'id': p.property_group.id, 'name': p.property_group.name
+                    }} for p in Property.objects.all()
+                ],
+                'property_groups': [
+                    {'id': pg.id, 'name': pg.name} for pg in PropertyGroup.objects.all()
+                ]
+            })
+        
+        manageable_properties = []
+        manageable_groups = []
+        
+        for membership in user.property_memberships.all():
+            if membership.role == PropertyUserRole.GROUP_ADMIN and membership.property_group:
+                # Can manage all properties in the group
+                group_properties = membership.property_group.properties.all()
+                manageable_properties.extend([
+                    {
+                        'id': p.id, 
+                        'name': p.name,
+                        'property_group': {
+                            'id': membership.property_group.id,
+                            'name': membership.property_group.name
+                        }
+                    } for p in group_properties
+                ])
+                manageable_groups.append({
+                    'id': membership.property_group.id,
+                    'name': membership.property_group.name
+                })
+                
+            elif membership.role == PropertyUserRole.PROPERTY_ADMIN and membership.property:
+                # Can only manage their specific property
+                manageable_properties.append({
+                    'id': membership.property.id,
+                    'name': membership.property.name,
+                    'property_group': {
+                        'id': membership.property.property_group.id,
+                        'name': membership.property.property_group.name
+                    } if membership.property.property_group else None
+                })
+        
+        return Response({
+            'can_manage_all': False,
+            'properties': manageable_properties,
+            'property_groups': manageable_groups
+        })
+    
+    @action(detail=False, methods=['get'])
+    def role_options(self, request):
+        """
+        Return available role options for the current user.
+        """
+        user = request.user
+        
+        if user.is_superuser:
+            return Response({
+                'roles': [
+                    {'value': 'super_user', 'label': 'Super User'},
+                    {'value': PropertyUserRole.GROUP_ADMIN, 'label': 'Property Group Admin'},
+                    {'value': PropertyUserRole.PROPERTY_ADMIN, 'label': 'Property Admin'},
+                    {'value': PropertyUserRole.TENANT, 'label': 'Tenant'},
+                ]
+            })
+        
+        available_roles = []
+        
+        for membership in user.property_memberships.all():
+            if membership.role == PropertyUserRole.GROUP_ADMIN:
+                available_roles.extend([
+                    {'value': PropertyUserRole.PROPERTY_ADMIN, 'label': 'Property Admin'},
+                    {'value': PropertyUserRole.TENANT, 'label': 'Tenant'},
+                ])
+            elif membership.role == PropertyUserRole.PROPERTY_ADMIN:
+                available_roles.append(
+                    {'value': PropertyUserRole.TENANT, 'label': 'Tenant'}
+                )
+        
+        # Remove duplicates
+        seen = set()
+        unique_roles = []
+        for role in available_roles:
+            if role['value'] not in seen:
+                seen.add(role['value'])
+                unique_roles.append(role)
+        
+        return Response({'roles': unique_roles})
+
+
+# Keep the old AdminUserViewSet for backward compatibility if needed
 class AdminUserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
     serializer_class = UserSerializer
