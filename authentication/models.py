@@ -51,3 +51,81 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     def get_absolute_url(self):
         return "/users/%i/" % (self.pk)
     
+    def is_property_admin(self, property):
+        """Check if user is admin of a specific property"""
+        if self.is_superuser:
+            return True
+        
+        from property_app.models import PropertyUserRole
+        return self.property_memberships.filter(
+            property=property, role=PropertyUserRole.PROPERTY_ADMIN
+        ).exists()
+    
+    def is_group_admin(self, property_group):
+        """Check if user is admin of a specific property group"""
+        if self.is_superuser:
+            return True
+            
+        from property_app.models import PropertyUserRole
+        return self.property_memberships.filter(
+            property_group=property_group, role=PropertyUserRole.GROUP_ADMIN
+        ).exists()
+    
+    def get_managed_properties(self):
+        """Get all properties this user can manage"""
+        if self.is_superuser:
+            from property_app.models import Property
+            return Property.objects.all()
+            
+        from property_app.models import PropertyUserRole, Property
+        managed_property_ids = set()
+        
+        for membership in self.property_memberships.all():
+            if membership.role == PropertyUserRole.GROUP_ADMIN and membership.property_group:
+                # Group admins can manage all properties in their group
+                group_properties = membership.property_group.properties.all()
+                managed_property_ids.update(group_properties.values_list('id', flat=True))
+            elif membership.role == PropertyUserRole.PROPERTY_ADMIN and membership.property:
+                # Property admins can manage their specific property
+                managed_property_ids.add(membership.property.id)
+                
+        return Property.objects.filter(id__in=managed_property_ids)
+    
+    def get_managed_users(self):
+        """Get all users this user can manage"""
+        if self.is_superuser:
+            return CustomUser.objects.all()
+            
+        from property_app.models import PropertyUserRole
+        manageable_user_ids = set()
+        
+        for membership in self.property_memberships.all():
+            if membership.role == PropertyUserRole.GROUP_ADMIN and membership.property_group:
+                # Group admins can manage users in their property group
+                group_properties = membership.property_group.properties.all()
+                
+                # Users in group properties
+                group_property_users = CustomUser.objects.filter(
+                    property_memberships__property__in=group_properties,
+                    property_memberships__role__in=[PropertyUserRole.PROPERTY_ADMIN, PropertyUserRole.TENANT]
+                )
+                
+                # Users directly in the group
+                group_users = CustomUser.objects.filter(
+                    property_memberships__property_group=membership.property_group,
+                    property_memberships__role__in=[PropertyUserRole.PROPERTY_ADMIN, PropertyUserRole.TENANT]
+                )
+                
+                manageable_user_ids.update(group_property_users.values_list('id', flat=True))
+                manageable_user_ids.update(group_users.values_list('id', flat=True))
+                
+            elif membership.role == PropertyUserRole.PROPERTY_ADMIN and membership.property:
+                # Property admins can manage tenants in their property
+                property_tenants = CustomUser.objects.filter(
+                    property_memberships__property=membership.property,
+                    property_memberships__role=PropertyUserRole.TENANT
+                )
+                manageable_user_ids.update(property_tenants.values_list('id', flat=True))
+        
+        return CustomUser.objects.filter(id__in=manageable_user_ids)
+    
