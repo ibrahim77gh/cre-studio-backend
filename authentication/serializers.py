@@ -163,34 +163,41 @@ class UserManagementCreateSerializer(serializers.ModelSerializer):
         role = validated_data.pop('role')
         property_id = validated_data.pop('property_id', None)
         property_group_id = validated_data.pop('property_group_id', None)
-        
-        # Set user type flags
+
+        # Flags for staff/superuser
+        is_superuser = False
+        is_staff = False
+
         if role == 'super_user':
-            validated_data['is_superuser'] = True
-            validated_data['is_staff'] = True
+            is_superuser = True
+            is_staff = True
         elif role in [PropertyUserRole.PROPERTY_ADMIN, PropertyUserRole.GROUP_ADMIN]:
-            validated_data['is_staff'] = True
-            
-        # Create user
+            is_staff = True
+
+        # Create user (do not pass is_staff/superuser here)
         user = CustomUser.objects.create_user(
             password=password,
             **validated_data
         )
-        
+
+        # Assign staff/superuser flags explicitly
+        user.is_staff = is_staff
+        user.is_superuser = is_superuser
+        user.save()
+
         # Create membership if not superuser
         if role != 'super_user':
             membership_data = {
                 'user': user,
                 'role': role,
             }
-            
             if property_id:
                 membership_data['property'] = Property.objects.get(id=property_id)
             elif property_group_id:
                 membership_data['property_group'] = PropertyGroup.objects.get(id=property_group_id)
-                
+
             UserPropertyMembership.objects.create(**membership_data)
-        
+
         return user
     
     def get_role_info(self, obj):
