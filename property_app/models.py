@@ -141,6 +141,25 @@ class Campaign(models.Model):
 
     # General fields for all campaigns
     dms_sync_ready = models.BooleanField(default=False)
+    approved_by_admin = models.BooleanField(default=False)
+    approved_by_client = models.BooleanField(default=False)
+    
+    # AI Processing Status
+    class AIProcessingStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        PROCESSING = "processing", "Processing"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+    
+    ai_processing_status = models.CharField(
+        max_length=20,
+        choices=AIProcessingStatus.choices,
+        default=AIProcessingStatus.PENDING,
+        help_text="Status of AI content generation for this campaign"
+    )
+    ai_processing_error = models.TextField(blank=True, null=True, help_text="Error message if AI processing failed")
+    ai_processed_at = models.DateTimeField(null=True, blank=True, help_text="When AI processing was completed")
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -229,7 +248,7 @@ class CampaignBudget(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Budget for {self.campaign.title or self.campaign.id}"
+        return f"Budget for {self.campaign.center or self.campaign.id}"
 
     # Calculated fields (for reports)
     @property

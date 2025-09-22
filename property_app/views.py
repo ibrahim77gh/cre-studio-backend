@@ -24,6 +24,7 @@ class PropertyViewSet(viewsets.ModelViewSet):
         - Superuser: return all properties
         - Group admin: return all properties for groups where the user has group_admin role
         - Property admin: return properties where the user has property_admin role
+        - Tenant: return properties where the user has tenant role
         - Otherwise: return no properties
         """
         user = self.request.user
@@ -47,10 +48,21 @@ class PropertyViewSet(viewsets.ModelViewSet):
                     role=PropertyUserRole.PROPERTY_ADMIN,
                     property__isnull=False
                 ).values_list("property_id", flat=True)
+                
                 if prop_ids_qs.exists():
                     qs = Property.objects.filter(id__in=prop_ids_qs)
                 else:
-                    qs = Property.objects.none()
+                    # Check for tenant roles
+                    tenant_prop_ids_qs = UserPropertyMembership.objects.filter(
+                        user=user,
+                        role=PropertyUserRole.TENANT,
+                        property__isnull=False
+                    ).values_list("property_id", flat=True)
+                    
+                    if tenant_prop_ids_qs.exists():
+                        qs = Property.objects.filter(id__in=tenant_prop_ids_qs)
+                    else:
+                        qs = Property.objects.none()
 
         return qs
 
@@ -64,9 +76,9 @@ class CampaignSubmissionViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = Campaign.objects.all()
-        subdomain = self.request.query_params.get("subdomain")
-        if subdomain:
-            queryset = queryset.filter(property__subdomain=subdomain)
+        property_id = self.request.query_params.get("property_id")
+        if property_id:
+            queryset = queryset.filter(property_id=property_id)
         return queryset
 
 

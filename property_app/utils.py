@@ -6,8 +6,9 @@ from typing import List, Optional
 import json
 from dotenv import load_dotenv
 
-from property_app.models import CampaignDate, CampaignDateType
+from property_app.models import CampaignDate, CampaignDateType, CampaignBudget
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 load_dotenv()  # Load environment variables from .env file
 
 # Initialize OpenAI client
@@ -54,6 +55,20 @@ class DateExtractionResponse(BaseModel):
     campaign_start_date: Optional[str] = None  # YYYY-MM-DD format
     campaign_end_date: Optional[str] = None    # YYYY-MM-DD format
     event_dates: List[ExtractedDate] = []
+
+class ExtractedBudget(BaseModel):
+    total_gross: Optional[float] = None
+    total_net: Optional[float] = None
+    meta_gross: Optional[float] = None
+    meta_net: Optional[float] = None
+    display_gross: Optional[float] = None
+    display_net: Optional[float] = None
+    creative_charges_deductions: Optional[float] = None
+
+class BudgetExtractionResponse(BaseModel):
+    budget: ExtractedBudget
+    confidence_level: str  # 'high', 'medium', 'low'
+    extracted_values: List[str] = []  # List of values that were found in the text
 
 def generate_meta_ad_content(messaging, primary_goal, target_audience, creative_context):
     """Generate all Meta ad content using a single API call."""
@@ -205,6 +220,144 @@ def extract_dates_with_ai(timeframe_text, pmcb_data):
             event_dates=[]
         )
 
+def extract_budget_with_ai(budget_text, pmcb_data):
+    """
+    Use AI to extract budget information from budget text and other PMCB data.
+    Only extracts explicitly mentioned budget amounts, does not generate or guess values.
+    """
+    # Combine all relevant text that might contain budget information
+    additional_context = ""
+    if pmcb_data:
+        additional_context += f"Additional Notes: {pmcb_data.get('additionalNotes', '')}\n"
+        additional_context += f"Messaging: {pmcb_data.get('messaging', '')}\n"
+        additional_context += f"Creative Context: {pmcb_data.get('creativeContext', '')}\n"
+        additional_context += f"Primary Goal: {pmcb_data.get('primaryGoal', '')}\n"
+    
+    prompt = f"""
+    Extract budget information from the following text. ONLY extract explicitly mentioned budget amounts.
+    DO NOT generate, estimate, or make up any budget numbers that are not clearly stated in the text.
+    
+    Budget Information: {budget_text}
+    
+    Additional Context:
+    {additional_context}
+    
+    Look for:
+    - Total gross budget amounts
+    - Total net budget amounts
+    - Meta/Facebook advertising budget (gross and net)
+    - Google Display advertising budget (gross and net)
+    - Creative charges or deductions
+    
+    IMPORTANT RULES:
+    1. Only extract numbers that are explicitly mentioned in the text
+    2. If a budget amount is not clearly specified, leave it as null
+    3. Do not calculate or estimate any values
+    4. Return confidence level: 'high' if amounts are clearly stated, 'medium' if somewhat clear, 'low' if unclear
+    5. List all the specific values/amounts you found in the extracted_values array
+    
+    If no budget information is found, return null values for all budget fields.
+    """
+
+    try:
+        response = client.responses.parse(
+            model=MODEL,
+            input=[
+                {"role": "system", "content": "You are an expert at extracting budget information from marketing campaign text. Extract ONLY explicitly mentioned budget amounts. Never estimate or generate numbers."},
+                {"role": "user", "content": prompt}
+            ],
+            text_format=BudgetExtractionResponse,
+        )
+        return response.output_parsed
+    except Exception as e:
+        # Fallback - return empty response
+        return BudgetExtractionResponse(
+            budget=ExtractedBudget(),
+            confidence_level='low',
+            extracted_values=[]
+        )
+
+def parse_budget_from_pmcb(campaign, pmcb_data):
+    """
+    Parse budget information from pmcb_form_data and create/update CampaignBudget instance.
+    Uses AI to extract budget amounts from budget text and other relevant data.
+    """
+    if not pmcb_data:
+        return
+    
+    # Extract budget information
+    budget_text = pmcb_data.get('budget', '')
+    
+    if budget_text:
+        # Use AI to extract budget information
+        extracted_budget_data = extract_budget_with_ai(budget_text, pmcb_data)
+        
+        if extracted_budget_data.confidence_level != 'low' or extracted_budget_data.extracted_values:
+            # Get or create campaign budget
+            campaign_budget, created = CampaignBudget.objects.get_or_create(
+                campaign=campaign,
+                defaults={
+                    'total_gross': 0.00,
+                    'total_net': 0.00,
+                    'meta_gross': 0.00,
+                    'meta_net': 0.00,
+                    'display_gross': 0.00,
+                    'display_net': 0.00,
+                    'creative_charges_deductions': 0.00,
+                }
+            )
+            
+            # Update budget fields only if values were extracted
+            budget = extracted_budget_data.budget
+            
+            def safe_decimal_conversion(value):
+                """Safely convert a value to Decimal, return None if conversion fails"""
+                if value is None:
+                    return None
+                try:
+                    return Decimal(str(value))
+                except (InvalidOperation, ValueError, TypeError):
+                    return None
+            
+            # Update only the fields that have extracted values
+            if budget.total_gross is not None:
+                decimal_value = safe_decimal_conversion(budget.total_gross)
+                if decimal_value is not None:
+                    campaign_budget.total_gross = decimal_value
+            
+            if budget.total_net is not None:
+                decimal_value = safe_decimal_conversion(budget.total_net)
+                if decimal_value is not None:
+                    campaign_budget.total_net = decimal_value
+            
+            if budget.meta_gross is not None:
+                decimal_value = safe_decimal_conversion(budget.meta_gross)
+                if decimal_value is not None:
+                    campaign_budget.meta_gross = decimal_value
+            
+            if budget.meta_net is not None:
+                decimal_value = safe_decimal_conversion(budget.meta_net)
+                if decimal_value is not None:
+                    campaign_budget.meta_net = decimal_value
+            
+            if budget.display_gross is not None:
+                decimal_value = safe_decimal_conversion(budget.display_gross)
+                if decimal_value is not None:
+                    campaign_budget.display_gross = decimal_value
+            
+            if budget.display_net is not None:
+                decimal_value = safe_decimal_conversion(budget.display_net)
+                if decimal_value is not None:
+                    campaign_budget.display_net = decimal_value
+            
+            if budget.creative_charges_deductions is not None:
+                decimal_value = safe_decimal_conversion(budget.creative_charges_deductions)
+                if decimal_value is not None:
+                    campaign_budget.creative_charges_deductions = decimal_value
+            
+            # Save the budget
+            campaign_budget.save()
+
 def parse_dates_from_pmcb(campaign, pmcb_data):
     """
     Parse date information from pmcb_form_data and create CampaignDate instances.
@@ -276,6 +429,9 @@ def map_pmcb_to_campaign_fields(campaign, pmcb_data):
 
     # Parse and create campaign dates
     parse_dates_from_pmcb(campaign, pmcb_data)
+
+    # Parse and create campaign budget
+    parse_budget_from_pmcb(campaign, pmcb_data)
 
     # Website URLs
     relevant_links = pmcb_data.get('relevantLinks', '')

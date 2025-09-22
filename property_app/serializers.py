@@ -98,6 +98,11 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
             'google_notes',
             'google_ready',
             'dms_sync_ready',
+            'ai_processing_status',
+            'ai_processing_error',
+            'ai_processed_at',
+            'approved_by_admin',
+            'approved_by_client',
             'created_at',
             'updated_at',
             'creative_assets',
@@ -109,6 +114,9 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'id',
             'dms_sync_ready',
+            'ai_processing_status',
+            'ai_processing_error',
+            'ai_processed_at',
             'created_at',
             'updated_at',
             'creative_assets_list',
@@ -122,7 +130,6 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
         creative_assets = validated_data.pop('creative_assets', [])
         campaign_dates_data = validated_data.pop('campaign_dates', [])
         pmcb_data = validated_data.pop('pmcb_form_data', {})
-        budget_data = pmcb_data.pop('budget', None)
 
         # Store pmcb_form_data JSON in campaign
         validated_data['pmcb_form_data'] = pmcb_data
@@ -137,18 +144,6 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
         # Handle campaign dates
         for date_data in campaign_dates_data:
             CampaignDate.objects.create(campaign=campaign, **date_data)
-
-        # Handle budget safely
-        if budget_data:
-            cleaned_budget = {}
-            for k, v in budget_data.items():
-                if v in ["", None]:   # convert "" to None
-                    cleaned_budget[k] = None
-                else:
-                    cleaned_budget[k] = v
-            CampaignBudget.objects.create(campaign=campaign, **cleaned_budget)
-        else:
-            CampaignBudget.objects.create(campaign=campaign)
 
         return campaign
 
