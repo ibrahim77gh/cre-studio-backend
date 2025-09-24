@@ -141,8 +141,20 @@ class Campaign(models.Model):
 
     # General fields for all campaigns
     dms_sync_ready = models.BooleanField(default=False)
-    approved_by_admin = models.BooleanField(default=False)
-    approved_by_client = models.BooleanField(default=False)
+    
+    # Approval Status
+    class ApprovalStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        ADMIN_APPROVED = "admin_approved", "Admin Approved"
+        CLIENT_APPROVED = "client_approved", "Client Approved"
+        FULLY_APPROVED = "fully_approved", "Fully Approved"
+    
+    approval_status = models.CharField(
+        max_length=20,
+        choices=ApprovalStatus.choices,
+        default=ApprovalStatus.PENDING,
+        help_text="Current approval status of the campaign"
+    )
     
     # AI Processing Status
     class AIProcessingStatus(models.TextChoices):

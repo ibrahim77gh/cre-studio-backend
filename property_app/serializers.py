@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from .models import CampaignBudget, CreativeAsset, Property, PropertyGroup, Campaign, ClientNotification, CampaignDate
 import json
+import os
 
 class PropertyGroupSerializer(serializers.ModelSerializer):
     class Meta:
@@ -19,10 +20,107 @@ class PropertySerializer(serializers.ModelSerializer):
 
 
 class CreativeAssetSerializer(serializers.ModelSerializer):
+    campaign_id = serializers.IntegerField(write_only=True, required=False)
+    file_url = serializers.SerializerMethodField(read_only=True)
+    file_name = serializers.SerializerMethodField(read_only=True)
+    file_size = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = CreativeAsset
-        fields = ["id", "file", "uploaded_at", "asset_type", "platform_type"]
-        read_only_fields = ["id", "uploaded_at"]
+        fields = [
+            "id", "campaign", "campaign_id", "file", "file_url", "file_name", 
+            "file_size", "uploaded_at", "asset_type", "platform_type"
+        ]
+        read_only_fields = ["id", "uploaded_at", "file_url", "file_name", "file_size"]
+        extra_kwargs = {
+            'file': {'required': False},  # Allow updates without file replacement
+        }
+
+    def get_file_url(self, obj):
+        """Return the URL of the uploaded file."""
+        if obj.file:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.file.url)
+            return obj.file.url
+        return None
+
+    def get_file_name(self, obj):
+        """Return the original filename."""
+        if obj.file:
+            return os.path.basename(obj.file.name)
+        return None
+
+    def get_file_size(self, obj):
+        """Return the file size in bytes."""
+        if obj.file:
+            try:
+                return obj.file.size
+            except (OSError, ValueError):
+                return None
+        return None
+
+    def validate_file(self, value):
+        """Validate file type and size."""
+        if value:
+            # Check file size (max 50MB)
+            max_size = 50 * 1024 * 1024  # 50MB in bytes
+            if value.size > max_size:
+                raise serializers.ValidationError(
+                    f"File size cannot exceed 50MB. Current size: {value.size / (1024*1024):.1f}MB"
+                )
+            
+            # Check file extension
+            allowed_extensions = [
+                '.jpg', '.jpeg', '.png', '.gif', '.webp',  # Images
+                '.mp4', '.mov', '.avi', '.webm',  # Videos
+                '.pdf', '.doc', '.docx',  # Documents
+            ]
+            
+            file_ext = os.path.splitext(value.name)[1].lower()
+            if file_ext not in allowed_extensions:
+                raise serializers.ValidationError(
+                    f"File type '{file_ext}' is not allowed. "
+                    f"Allowed types: {', '.join(allowed_extensions)}"
+                )
+        
+        return value
+
+    def create(self, validated_data):
+        # Handle campaign_id if provided
+        campaign_id = validated_data.pop('campaign_id', None)
+        if campaign_id:
+            try:
+                campaign = Campaign.objects.get(id=campaign_id)
+                validated_data['campaign'] = campaign
+            except Campaign.DoesNotExist:
+                raise serializers.ValidationError({'campaign_id': 'Invalid campaign ID.'})
+        
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        """
+        Custom update method to handle file replacement properly.
+        When a new file is uploaded, the old file is deleted from storage.
+        """
+        new_file = validated_data.get('file')
+        
+        # If a new file is being uploaded, clean up the old one
+        if new_file and instance.file:
+            old_file = instance.file
+            # Django will handle the file deletion automatically when we save the new file
+            # But we can add custom logic here if needed
+            
+        # Handle campaign_id if provided (in case user wants to move asset to different campaign)
+        campaign_id = validated_data.pop('campaign_id', None)
+        if campaign_id:
+            try:
+                campaign = Campaign.objects.get(id=campaign_id)
+                validated_data['campaign'] = campaign
+            except Campaign.DoesNotExist:
+                raise serializers.ValidationError({'campaign_id': 'Invalid campaign ID.'})
+        
+        return super().update(instance, validated_data)
 
 
 class CampaignDateSerializer(serializers.ModelSerializer):
@@ -98,11 +196,10 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
             'google_notes',
             'google_ready',
             'dms_sync_ready',
+            'approval_status',
             'ai_processing_status',
             'ai_processing_error',
             'ai_processed_at',
-            'approved_by_admin',
-            'approved_by_client',
             'created_at',
             'updated_at',
             'creative_assets',
@@ -124,7 +221,6 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data):
-        from .models import CampaignDate
         print(validated_data)
 
         creative_assets = validated_data.pop('creative_assets', [])

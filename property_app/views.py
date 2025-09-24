@@ -3,9 +3,10 @@ from property_app.serializers import (
     PropertyGroupSerializer,
     PropertySerializer,
     CampaignSubmissionSerializer,
-    ClientNotificationSerializer
+    ClientNotificationSerializer,
+    CreativeAssetSerializer
 )
-from .models import Campaign, Property, PropertyGroup, UserPropertyMembership, PropertyUserRole, ClientNotification
+from .models import Campaign, Property, PropertyGroup, UserPropertyMembership, PropertyUserRole, ClientNotification, CreativeAsset
 from rest_framework import permissions, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -108,3 +109,58 @@ class ClientNotificationViewSet(viewsets.ModelViewSet):
         notification.is_read = True
         notification.save()
         return Response({'status': 'Notification marked as read'})
+
+
+class CreativeAssetViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing individual creative assets.
+    Provides full CRUD operations for assets.
+    Frontend handles access permissions by only showing accessible campaigns.
+    """
+    queryset = CreativeAsset.objects.all()
+    serializer_class = CreativeAssetSerializer
+    permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser)
+
+    def get_queryset(self):
+        """
+        Return assets with optional filtering by campaign_id.
+        """
+        queryset = CreativeAsset.objects.all().select_related('campaign__property')
+        
+        # Filter by campaign_id if provided in query params
+        campaign_id = self.request.query_params.get('campaign_id')
+        if campaign_id:
+            queryset = queryset.filter(campaign_id=campaign_id)
+
+        return queryset.order_by('-uploaded_at')
+
+    @action(detail=False, methods=['get'])
+    def by_campaign(self, request):
+        """
+        Custom action to get all assets for a specific campaign.
+        Usage: GET /api/assets/by_campaign/?campaign_id=123
+        """
+        campaign_id = request.query_params.get('campaign_id')
+        if not campaign_id:
+            return Response(
+                {'error': 'campaign_id parameter is required'}, 
+                status=400
+            )
+        
+        try:
+            campaign = Campaign.objects.get(id=campaign_id)
+        except Campaign.DoesNotExist:
+            return Response(
+                {'error': 'Campaign not found'}, 
+                status=404
+            )
+        
+        assets = CreativeAsset.objects.filter(campaign=campaign).order_by('-uploaded_at')
+        serializer = self.get_serializer(assets, many=True)
+        
+        return Response({
+            'campaign_id': campaign_id,
+            'campaign_name': str(campaign),
+            'assets': serializer.data
+        })
