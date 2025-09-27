@@ -78,3 +78,87 @@ def process_campaign_ai_content(self, campaign_id):
             'error': str(exc),
             'retries': self.request.retries
         }
+
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=30)
+def send_comment_email_notifications_task(self, comment_id, notification_user_ids):
+    """
+    Celery task wrapper for sending comment email notifications.
+    
+    Args:
+        comment_id (int): The ID of the comment
+        notification_user_ids (list): List of user IDs to notify
+        
+    Returns:
+        dict: Task result with status and details
+    """
+    try:
+        from .utils import send_comment_email_notifications
+        send_comment_email_notifications(comment_id, notification_user_ids)
+        
+        logger.info(f"Successfully sent comment email notifications for comment {comment_id}")
+        
+        return {
+            'status': 'completed',
+            'comment_id': comment_id,
+            'notified_users': len(notification_user_ids),
+            'message': 'Comment email notifications sent successfully'
+        }
+        
+    except Exception as exc:
+        logger.error(f"Error sending comment email notifications for comment {comment_id}: {str(exc)}")
+        
+        # Retry the task if we haven't exceeded max retries
+        if self.request.retries < self.max_retries:
+            logger.info(f"Retrying comment email task for comment {comment_id}, attempt {self.request.retries + 1}")
+            raise self.retry(exc=exc)
+        
+        return {
+            'status': 'failed',
+            'comment_id': comment_id,
+            'error': str(exc),
+            'retries': self.request.retries
+        }
+
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=30)
+def send_campaign_update_email_notifications_task(self, campaign_id, updated_by_id, update_type):
+    """
+    Celery task wrapper for sending campaign update email notifications.
+    
+    Args:
+        campaign_id (int): The ID of the campaign
+        updated_by_id (int): The ID of the user who updated the campaign
+        update_type (str): The type of update
+        
+    Returns:
+        dict: Task result with status and details
+    """
+    try:
+        from .utils import send_campaign_update_email_notifications
+        send_campaign_update_email_notifications(campaign_id, updated_by_id, update_type)
+        
+        logger.info(f"Successfully sent campaign update email notifications for campaign {campaign_id}")
+        
+        return {
+            'status': 'completed',
+            'campaign_id': campaign_id,
+            'updated_by_id': updated_by_id,
+            'update_type': update_type,
+            'message': 'Campaign update email notifications sent successfully'
+        }
+        
+    except Exception as exc:
+        logger.error(f"Error sending campaign update email notifications for campaign {campaign_id}: {str(exc)}")
+        
+        # Retry the task if we haven't exceeded max retries
+        if self.request.retries < self.max_retries:
+            logger.info(f"Retrying campaign update email task for campaign {campaign_id}, attempt {self.request.retries + 1}")
+            raise self.retry(exc=exc)
+        
+        return {
+            'status': 'failed',
+            'campaign_id': campaign_id,
+            'error': str(exc),
+            'retries': self.request.retries
+        }

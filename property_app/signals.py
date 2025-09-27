@@ -11,4 +11,5 @@ def auto_map_pmcb_data(sender, instance, created, **kwargs):
     """
     if created and instance.pmcb_form_data:
         # Only process new campaigns with pmcb_form_data
-        process_campaign_ai_content.delay(instance.id)
+        # process_campaign_ai_content.delay(instance.id)
+        print(f"Processing campaign {instance.id} with pmcb_form_data")

@@ -1,7 +1,6 @@
 # models.py
 from django.db import models
 from django.forms import ValidationError
-from django.utils import timezone
 from django.conf import settings
 from django.core.validators import RegexValidator
 
@@ -180,7 +179,7 @@ class Campaign(models.Model):
         verbose_name_plural = "Campaigns"
 
     def __str__(self):
-        return f"Campaign for {self.property.name} - {self.pk}"
+        return f"{self.center} - {self.property.name}"
     
     def get_event_dates(self):
         """Get all event dates for this campaign"""
@@ -288,10 +287,71 @@ class CreativeAsset(models.Model):
 
 
 
+class CampaignComment(models.Model):
+    """
+    Comments on campaigns with threading support.
+    """
+    campaign = models.ForeignKey(
+        Campaign,
+        on_delete=models.CASCADE,
+        related_name='comments'
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='campaign_comments'
+    )
+    parent_comment = models.ForeignKey(
+        'self',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='replies'
+    )
+    content = models.TextField()
+    is_resolved = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['created_at']
+        verbose_name = "Campaign Comment"
+        verbose_name_plural = "Campaign Comments"
+
+    def __str__(self):
+        return f"Comment by {self.user.email} on Campaign {self.campaign.pk}"
+    
+    @property
+    def is_reply(self):
+        """Check if this comment is a reply to another comment"""
+        return self.parent_comment is not None
+    
+    def get_thread_comments(self):
+        """Get all comments in the same thread (including this comment and all replies)"""
+        if self.parent_comment:
+            # If this is a reply, get the root comment and all its replies
+            root_comment = self.parent_comment
+            return CampaignComment.objects.filter(
+                models.Q(id=root_comment.id) | models.Q(parent_comment=root_comment)
+            ).order_by('created_at')
+        else:
+            # If this is a root comment, get this comment and all its replies
+            return CampaignComment.objects.filter(
+                models.Q(id=self.id) | models.Q(parent_comment=self)
+            ).order_by('created_at')
+
+
 class ClientNotification(models.Model):
     """
     Notifications for the client dashboard.
     """
+    class NotificationType(models.TextChoices):
+        GENERAL = "general", "General"
+        COMMENT = "comment", "Comment"
+        COMMENT_REPLY = "comment_reply", "Comment Reply"
+        CAMPAIGN_UPDATE = "campaign_update", "Campaign Update"
+        APPROVAL = "approval", "Approval"
+    
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -302,9 +362,27 @@ class ClientNotification(models.Model):
         on_delete=models.CASCADE,
         related_name='notifications'
     )
+    comment = models.ForeignKey(
+        CampaignComment,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='notifications'
+    )
+    notification_type = models.CharField(
+        max_length=20,
+        choices=NotificationType.choices,
+        default=NotificationType.GENERAL
+    )
+    title = models.CharField(max_length=255, blank=True)
     message = models.TextField()
     is_read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "Client Notification"
+        verbose_name_plural = "Client Notifications"
 
     def __str__(self):
         return f"Notification for {self.user.email} on Campaign {self.campaign.pk}"

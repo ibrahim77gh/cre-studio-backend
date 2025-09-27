@@ -1,5 +1,8 @@
 from rest_framework import serializers
-from .models import CampaignBudget, CreativeAsset, Property, PropertyGroup, Campaign, ClientNotification, CampaignDate
+from .models import (
+    CampaignBudget, CreativeAsset, Property, PropertyGroup, Campaign,
+    ClientNotification, CampaignDate, CampaignComment
+)
 import json
 import os
 
@@ -285,8 +288,117 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
         return campaign
 
 
+class CampaignCommentSerializer(serializers.ModelSerializer):
+    user_name = serializers.SerializerMethodField(read_only=True)
+    user_email = serializers.SerializerMethodField(read_only=True)
+    replies = serializers.SerializerMethodField(read_only=True)
+    is_reply = serializers.SerializerMethodField(read_only=True)
+    reply_count = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = CampaignComment
+        fields = [
+            'id', 'campaign', 'user', 'user_name', 'user_email', 'parent_comment',
+            'content', 'is_resolved', 'is_reply', 'reply_count', 'replies',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'user', 'created_at', 'updated_at']
+
+    def get_user_name(self, obj):
+        """Get the user's full name"""
+        if obj.user.first_name and obj.user.last_name:
+            return f"{obj.user.first_name} {obj.user.last_name}"
+        return obj.user.email
+
+    def get_user_email(self, obj):
+        """Get the user's email"""
+        return obj.user.email
+
+    def get_is_reply(self, obj):
+        """Check if this comment is a reply"""
+        return obj.is_reply
+
+    def get_reply_count(self, obj):
+        """Get the number of replies to this comment"""
+        return obj.replies.count()
+
+    def get_replies(self, obj):
+        """Get all replies to this comment"""
+        if obj.is_reply:
+            return None  # Don't show replies for reply comments to avoid infinite nesting
+        replies = obj.replies.all().order_by('created_at')
+        return CampaignCommentSerializer(replies, many=True, context=self.context).data
+
+    def create(self, validated_data):
+        """Create a new comment"""
+        validated_data['user'] = self.context['request'].user
+        return super().create(validated_data)
+
+    def validate(self, data):
+        """Validate comment data"""
+        # Check if user has permission to comment on this campaign
+        campaign = data.get('campaign')
+        user = self.context['request'].user
+        
+        if campaign:
+            # Check if user is associated with this campaign's property
+            from .models import PropertyUserRole
+            has_permission = (
+                user.is_superuser or
+                user.property_memberships.filter(
+                    property=campaign.property,
+                    role__in=[
+                        PropertyUserRole.TENANT, 
+                        PropertyUserRole.PROPERTY_ADMIN, 
+                        PropertyUserRole.GROUP_ADMIN
+                    ]
+                ).exists() or
+                user.property_memberships.filter(
+                    property_group=campaign.property.property_group,
+                    role=PropertyUserRole.GROUP_ADMIN
+                ).exists()
+            )
+            
+            if not has_permission:
+                raise serializers.ValidationError(
+                    "You don't have permission to comment on this campaign."
+                )
+        
+        return data
+
+
 class ClientNotificationSerializer(serializers.ModelSerializer):
+    user_name = serializers.SerializerMethodField(read_only=True)
+    user_email = serializers.SerializerMethodField(read_only=True)
+    campaign_name = serializers.SerializerMethodField(read_only=True)
+    comment_preview = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = ClientNotification
-        fields = ['id', 'user', 'campaign', 'message', 'is_read', 'created_at']
+        fields = [
+            'id', 'user', 'user_name', 'user_email', 'campaign', 'campaign_name',
+            'comment', 'notification_type', 'title', 'message', 'comment_preview',
+            'is_read', 'created_at'
+        ]
         read_only_fields = ['id', 'user', 'created_at']
+
+    def get_user_name(self, obj):
+        """Get the user's full name"""
+        if obj.user.first_name and obj.user.last_name:
+            return f"{obj.user.first_name} {obj.user.last_name}"
+        return obj.user.email
+
+    def get_user_email(self, obj):
+        """Get the user's email"""
+        return obj.user.email
+
+    def get_campaign_name(self, obj):
+        """Get the campaign name"""
+        return str(obj.campaign)
+
+    def get_comment_preview(self, obj):
+        """Get a preview of the comment if this is a comment notification"""
+        if obj.comment and obj.notification_type in ['comment', 'comment_reply']:
+            content = obj.comment.content
+            return content[:100] + '...' if len(content) > 100 else content
+        return None

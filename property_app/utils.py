@@ -3,12 +3,22 @@ import re
 from openai import OpenAI
 from pydantic import BaseModel
 from typing import List, Optional
-import json
 from dotenv import load_dotenv
 
-from property_app.models import CampaignDate, CampaignDateType, CampaignBudget
+from property_app.models import (
+    Campaign, CampaignDate, CampaignDateType, CampaignBudget, CampaignComment,
+    ClientNotification, PropertyUserRole
+)
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from django.contrib.auth import get_user_model
+from django.core.mail import send_mail
+from django.conf import settings
+from django.template.loader import render_to_string
+from django.utils.html import strip_tags
+from celery import shared_task
+
+
 load_dotenv()  # Load environment variables from .env file
 
 # Initialize OpenAI client
@@ -225,22 +235,11 @@ def extract_budget_with_ai(budget_text, pmcb_data):
     Use AI to extract budget information from budget text and other PMCB data.
     Only extracts explicitly mentioned budget amounts, does not generate or guess values.
     """
-    # Combine all relevant text that might contain budget information
-    additional_context = ""
-    if pmcb_data:
-        additional_context += f"Additional Notes: {pmcb_data.get('additionalNotes', '')}\n"
-        additional_context += f"Messaging: {pmcb_data.get('messaging', '')}\n"
-        additional_context += f"Creative Context: {pmcb_data.get('creativeContext', '')}\n"
-        additional_context += f"Primary Goal: {pmcb_data.get('primaryGoal', '')}\n"
-    
     prompt = f"""
     Extract budget information from the following text. ONLY extract explicitly mentioned budget amounts.
     DO NOT generate, estimate, or make up any budget numbers that are not clearly stated in the text.
     
     Budget Information: {budget_text}
-    
-    Additional Context:
-    {additional_context}
     
     Look for:
     - Total gross budget amounts
@@ -470,3 +469,212 @@ def map_pmcb_to_campaign_fields(campaign, pmcb_data):
 
     # Save the campaign
     campaign.save()
+
+
+def get_campaign_notification_users(campaign):
+    """
+    Get all users who should receive notifications for a campaign.
+    This includes:
+    - The campaign creator (tenant)
+    - Property admins for the campaign's property
+    - Group admins for the campaign's property group
+    """
+    User = get_user_model()
+    notification_users = set()
+    
+    # Add campaign creator
+    notification_users.add(campaign.user)
+    
+    # Add property admins
+    property_admins = User.objects.filter(
+        property_memberships__property=campaign.property,
+        property_memberships__role=PropertyUserRole.PROPERTY_ADMIN
+    )
+    notification_users.update(property_admins)
+    
+    # Add group admins
+    group_admins = User.objects.filter(
+        property_memberships__property_group=campaign.property.property_group,
+        property_memberships__role=PropertyUserRole.GROUP_ADMIN
+    )
+    notification_users.update(group_admins)
+    
+    return list(notification_users)
+
+
+def send_comment_notifications(comment):
+    """
+    Send notifications to relevant users when a comment is created.
+    """
+    campaign = comment.campaign
+    comment_author = comment.user
+    
+    # Get users who should be notified (excluding the comment author)
+    notification_users = get_campaign_notification_users(campaign)
+    notification_users = [user for user in notification_users if user != comment_author]
+    
+    # Determine notification type and content
+    if comment.is_reply:
+        notification_type = ClientNotification.NotificationType.COMMENT_REPLY
+        title = f"New Reply on Campaign {campaign.pk}"
+        message = f"{comment_author.email} replied to a comment on campaign {campaign.center or campaign.pk}"
+    else:
+        notification_type = ClientNotification.NotificationType.COMMENT
+        title = f"New Comment on Campaign {campaign.pk}"
+        message = f"{comment_author.email} commented on campaign {campaign.center or campaign.pk}"
+    
+    # Create notifications for each user
+    notifications_to_create = []
+    for user in notification_users:
+        notification = ClientNotification(
+            user=user,
+            campaign=campaign,
+            comment=comment,
+            notification_type=notification_type,
+            title=title,
+            message=message
+        )
+        notifications_to_create.append(notification)
+    
+    # Bulk create notifications
+    ClientNotification.objects.bulk_create(notifications_to_create)
+    
+    # Send email notifications asynchronously
+    from .tasks import send_comment_email_notifications_task
+    # send_comment_email_notifications_task.delay(comment.id, [user.id for user in notification_users])
+    print(f"Sent email notifications for comment {comment.id} to {len(notification_users)} users")
+
+
+@shared_task
+def send_comment_email_notifications(comment_id, notification_user_ids):
+    """
+    Send email notifications for new comments as a Celery task.
+    """
+    try:
+        # Get the comment and users from the database
+        comment = CampaignComment.objects.select_related('campaign', 'user', 'parent_comment').get(id=comment_id)
+        User = get_user_model()
+        notification_users = User.objects.filter(id__in=notification_user_ids)
+        
+        campaign = comment.campaign
+        comment_author = comment.user
+        
+        # Prepare email context
+        context = {
+            'campaign': campaign,
+            'comment': comment,
+            'comment_author': comment_author,
+            'site_name': getattr(settings, 'SITE_NAME', 'Retail Studio'),
+            'is_reply': comment.is_reply,
+            'parent_comment': comment.parent_comment if comment.is_reply else None,
+        }
+        
+        # Determine email template and subject
+        if comment.is_reply:
+            subject = f"New Reply on Campaign {campaign.center or campaign.pk}"
+            template_name = 'email/comment_reply_notification.html'
+        else:
+            subject = f"New Comment on Campaign {campaign.center or campaign.pk}"
+            template_name = 'email/comment_notification.html'
+        
+        # Send emails to each user
+        for user in notification_users:
+            try:
+                # Add user-specific context
+                context['recipient'] = user
+                
+                # Render email content
+                html_message = render_to_string(template_name, context)
+                plain_message = strip_tags(html_message)
+                
+                # Send email
+                send_mail(
+                    subject=subject,
+                    message=plain_message,
+                    html_message=html_message,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user.email],
+                    fail_silently=False,
+                )
+            except Exception as e:
+                # Log error but don't fail the entire task
+                print(f"Failed to send email notification to {user.email}: {e}")
+                
+    except CampaignComment.DoesNotExist:
+        print(f"Comment with id {comment_id} not found")
+    except Exception as e:
+        print(f"Error in send_comment_email_notifications task: {e}")
+
+
+def send_campaign_update_notification(campaign, update_type, updated_by):
+    """
+    Send notifications when a campaign is updated.
+    """
+    notification_users = get_campaign_notification_users(campaign)
+    notification_users = [user for user in notification_users if user != updated_by]
+    
+    title = f"Campaign {campaign.pk} Updated"
+    message = f"Campaign {campaign.center or campaign.pk} has been updated by {updated_by.email}"
+    
+    notifications_to_create = []
+    for user in notification_users:
+        notification = ClientNotification(
+            user=user,
+            campaign=campaign,
+            notification_type=ClientNotification.NotificationType.CAMPAIGN_UPDATE,
+            title=title,
+            message=message
+        )
+        notifications_to_create.append(notification)
+    
+    ClientNotification.objects.bulk_create(notifications_to_create)
+
+
+@shared_task
+def send_campaign_update_email_notifications(campaign_id, updated_by_id, update_type):
+    """
+    Send email notifications for campaign updates as a Celery task.
+    """
+    try:
+        User = get_user_model()
+        
+        campaign = Campaign.objects.select_related('property', 'property__property_group').get(id=campaign_id)
+        updated_by = User.objects.get(id=updated_by_id)
+        
+        notification_users = get_campaign_notification_users(campaign)
+        notification_users = [user for user in notification_users if user != updated_by]
+        
+        # Prepare email context
+        context = {
+            'campaign': campaign,
+            'updated_by': updated_by,
+            'update_type': update_type,
+            'site_name': getattr(settings, 'SITE_NAME', 'CRE Studio'),
+        }
+        
+        subject = f"Campaign {campaign.center or campaign.pk} Updated"
+        template_name = 'email/campaign_update_notification.html'
+        
+        # Send emails to each user
+        for user in notification_users:
+            try:
+                context['recipient'] = user
+                
+                html_message = render_to_string(template_name, context)
+                plain_message = strip_tags(html_message)
+                
+                send_mail(
+                    subject=subject,
+                    message=plain_message,
+                    html_message=html_message,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user.email],
+                    fail_silently=False,
+                )
+            except Exception as e:
+                print(f"Failed to send campaign update email to {user.email}: {e}")
+                
+    except (Campaign.DoesNotExist, User.DoesNotExist) as e:
+        print(f"Campaign or User not found: {e}")
+    except Exception as e:
+        print(f"Error in send_campaign_update_email_notifications task: {e}")
