@@ -38,7 +38,6 @@ else:
         'localhost',
         '127.0.0.1',
         os.environ.get('DOMAIN_NAME', 'yourdomain.com'),
-        f"www.{os.environ.get('DOMAIN_NAME', 'yourdomain.com')}",
     ]
 
 
