@@ -1,0 +1,21 @@
+[Unit]
+Description=Celery Beat Service for CRE Studio Backend
+After=network.target redis.service postgresql.service
+Requires=redis.service postgresql.service
+
+[Service]
+Type=exec
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/cre_studio_backend
+Environment=DEBUG=False
+ExecStart=/var/www/cre_studio_backend/venv/bin/celery -A cre_studio_backend beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+KillMode=mixed
+TimeoutStopSec=5
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,21 @@
+[Unit]
+Description=CRE Studio Backend Django App
+After=network.target postgresql.service redis.service
+Requires=postgresql.service redis.service
+
+[Service]
+Type=notify
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/cre_studio_backend
+Environment=DEBUG=False
+ExecStart=/var/www/cre_studio_backend/venv/bin/gunicorn --workers 3 --bind unix:/run/gunicorn.sock cre_studio_backend.wsgi:application
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+KillMode=mixed
+TimeoutStopSec=5
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
