@@ -95,6 +95,7 @@ class PropertyGroupViewSet(viewsets.ModelViewSet):
         property_group_id = self.kwargs.get('pk', None)
         if property_group_id:
             return PropertyGroup.objects.filter(id=property_group_id)
+        return PropertyGroup.objects.all()
 
 
 class ClientNotificationViewSet(viewsets.ModelViewSet):
