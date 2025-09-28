@@ -12,7 +12,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Configuration
-PROJECT_NAME="cre_studio_backend"
+PROJECT_NAME="cre-studio-backend"
 PROJECT_DIR="/var/www/$PROJECT_NAME"
 
 echo -e "${GREEN}Starting deployment update...${NC}"

@@ -12,7 +12,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Configuration
-PROJECT_NAME="cre_studio_backend"
+PROJECT_NAME="cre-studio-backend"
 PROJECT_DIR="/var/www/$PROJECT_NAME"
 DOMAIN_NAME="yourdomain.com"
 DB_NAME="cre_studio_db"
@@ -53,13 +53,17 @@ echo -e "${YELLOW}Creating project directory...${NC}"
 sudo mkdir -p $PROJECT_DIR
 sudo chown -R $USER:$USER $PROJECT_DIR
 
-# Clone project files from private repository
-echo -e "${YELLOW}Setting up project files...${NC}"
-echo -e "${YELLOW}Please make sure you have set up SSH key authentication for GitHub${NC}"
-echo -e "${YELLOW}If not, follow the GitHub SSH setup steps in the deployment guide${NC}"
+# Project files already cloned
+echo -e "${YELLOW}Project files found at $PROJECT_DIR${NC}"
+echo -e "${YELLOW}Proceeding with setup...${NC}"
 
-# Clone the private repository
-git clone git@github.com:ibrahim77gh/cre-studio-backend.git $PROJECT_DIR
+# Verify the project directory exists
+if [ ! -d "$PROJECT_DIR" ]; then
+    echo -e "${RED}Project directory not found at $PROJECT_DIR${NC}"
+    echo -e "${YELLOW}Please clone the repository first:${NC}"
+    echo -e "${YELLOW}git clone git@github.com:ibrahim77gh/cre-studio-backend.git $PROJECT_DIR${NC}"
+    exit 1
+fi
 
 # Create virtual environment
 echo -e "${YELLOW}Creating virtual environment...${NC}"

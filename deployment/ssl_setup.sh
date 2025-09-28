@@ -65,7 +65,7 @@ sudo certbot renew --dry-run
 
 # Update environment file with HTTPS URLs
 echo -e "${YELLOW}Updating environment file with HTTPS URLs...${NC}"
-PROJECT_DIR="/var/www/$PROJECT_NAME"
+PROJECT_DIR="/var/www/cre-studio-backend"
 sudo sed -i "s|APP_URL=.*|APP_URL=https://$DOMAIN_NAME/|g" $PROJECT_DIR/.env
 sudo sed -i "s|FRONTEND_URL=.*|FRONTEND_URL=https://$DOMAIN_NAME|g" $PROJECT_DIR/.env
 sudo sed -i "s|GOOGLE_REDIRECT_URI=.*|GOOGLE_REDIRECT_URI=https://$DOMAIN_NAME/api/oauth-callback|g" $PROJECT_DIR/.env

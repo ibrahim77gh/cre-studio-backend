@@ -67,8 +67,8 @@ sudo ufw --force enable
 ### 1. Create Project Directory
 
 ```bash
-sudo mkdir -p /var/www/cre_studio_backend
-sudo chown -R $USER:$USER /var/www/cre_studio_backend
+sudo mkdir -p /var/www/cre-studio-backend
+sudo chown -R $USER:$USER /var/www/cre-studio-backend
 ```
 
 ### 2. Set Up GitHub Access for Private Repository
@@ -126,20 +126,20 @@ git clone https://your-token@github.com/ibrahim77gh/cre-studio-backend.git .
 
 **Using SSH (Recommended):**
 ```bash
-cd /var/www/cre_studio_backend
+cd /var/www/cre-studio-backend
 git clone git@github.com:ibrahim77gh/cre-studio-backend.git .
 ```
 
 **Using HTTPS with Token:**
 ```bash
-cd /var/www/cre_studio_backend
+cd /var/www/cre-studio-backend
 git clone https://your-token@github.com/ibrahim77gh/cre-studio-backend.git .
 ```
 
 **Using SCP (Alternative):**
 ```bash
 # From your local machine
-scp -r . user@your-server-ip:/var/www/cre_studio_backend/
+scp -r . user@your-server-ip:/var/www/cre-studio-backend/
 ```
 
 ### 4. Run the Setup Script

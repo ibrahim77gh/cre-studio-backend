@@ -7,9 +7,9 @@ Requires=postgresql.service redis.service
 Type=notify
 User=www-data
 Group=www-data
-WorkingDirectory=/var/www/cre_studio_backend
+WorkingDirectory=/var/www/cre-studio-backend
 Environment=DEBUG=False
-ExecStart=/var/www/cre_studio_backend/venv/bin/gunicorn --workers 3 --bind unix:/run/gunicorn.sock cre_studio_backend.wsgi:application
+ExecStart=/var/www/cre-studio-backend/venv/bin/gunicorn --workers 3 --bind unix:/run/gunicorn.sock cre_studio_backend.wsgi:application
 ExecReload=/bin/kill -s HUP $MAINPID
 Restart=on-failure
 RestartSec=5s

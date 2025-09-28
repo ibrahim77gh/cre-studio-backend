@@ -44,7 +44,7 @@ fi
 
 # Database connection
 echo -e "${YELLOW}Database Status:${NC}"
-PROJECT_DIR="/var/www/cre_studio_backend"
+PROJECT_DIR="/var/www/cre-studio-backend"
 cd $PROJECT_DIR
 source venv/bin/activate
 export DEBUG=False

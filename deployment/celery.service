@@ -7,9 +7,9 @@ Requires=redis.service postgresql.service
 Type=exec
 User=www-data
 Group=www-data
-WorkingDirectory=/var/www/cre_studio_backend
+WorkingDirectory=/var/www/cre-studio-backend
 Environment=DEBUG=False
-ExecStart=/var/www/cre_studio_backend/venv/bin/celery -A cre_studio_backend worker --loglevel=info
+ExecStart=/var/www/cre-studio-backend/venv/bin/celery -A cre_studio_backend worker --loglevel=info
 ExecReload=/bin/kill -s HUP $MAINPID
 Restart=on-failure
 RestartSec=5s
