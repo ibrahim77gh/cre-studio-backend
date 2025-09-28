@@ -1,7 +1,7 @@
 from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status, viewsets, filters
+from rest_framework import status, viewsets, filters, permissions
 from rest_framework.decorators import action
 from djoser.social.views import ProviderAuthView
 from rest_framework_simplejwt.views import (
@@ -13,7 +13,8 @@ from .serializers import (
     UserSerializer, 
     UserManagementCreateSerializer,
     UserManagementUpdateSerializer,
-    UserManagementListSerializer
+    UserManagementListSerializer,
+    UserProfileUpdateSerializer
 )
 from .models import CustomUser
 from .permissions import CanManageUsers
@@ -350,3 +351,38 @@ class AdminUserViewSet(viewsets.ModelViewSet):
         if 'password' in self.request.data:
             user.set_password(self.request.data['password'])
             user.save()
+
+
+class UserProfileViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for users to manage their own profile information.
+    Allows users to update their own profile but not role-related fields.
+    """
+    serializer_class = UserProfileUpdateSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        """Users can only access their own profile"""
+        return CustomUser.objects.filter(id=self.request.user.id)
+    
+    def get_object(self):
+        """Always return the current user's profile"""
+        return self.request.user
+    
+    def list(self, request, *args, **kwargs):
+        """Redirect list to retrieve current user's profile"""
+        return self.retrieve(request, *args, **kwargs)
+    
+    def create(self, request, *args, **kwargs):
+        """Profile creation is handled by registration, not here"""
+        return Response(
+            {'error': 'Profile creation is handled through user registration'}, 
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+    
+    def destroy(self, request, *args, **kwargs):
+        """Users cannot delete their own profiles through this endpoint"""
+        return Response(
+            {'error': 'Profile deletion not allowed through this endpoint'}, 
+            status=status.HTTP_405_METHOD_NOT_ALLOWED
+        )

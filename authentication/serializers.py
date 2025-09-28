@@ -1,7 +1,7 @@
 from djoser.serializers import UserSerializer as BaseUserSerializer, UserCreateSerializer as BaseUserCreateSerializer
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
-from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.exceptions import ValidationError
 
 from property_app.models import PropertyUserRole, UserPropertyMembership, Property, PropertyGroup
 from .models import CustomUser
@@ -384,6 +384,45 @@ class UserManagementUpdateSerializer(serializers.ModelSerializer):
             }
             
         return role_info
+
+
+class UserProfileUpdateSerializer(serializers.ModelSerializer):
+    """
+    Serializer for users to update their own profile information.
+    Excludes role-related fields and admin-only fields.
+    """
+    password = serializers.CharField(write_only=True, required=False)
+    
+    class Meta:
+        model = CustomUser
+        fields = [
+            'id', 'email', 'first_name', 'last_name', 'password'
+        ]
+        read_only_fields = ['id', 'email']  # Users cannot change their ID or email
+    
+    def validate_password(self, value):
+        """Validate password if provided"""
+        if value:
+            try:
+                validate_password(value)
+            except ValidationError as e:
+                raise serializers.ValidationError(e.messages)
+        return value
+    
+    def update(self, instance, validated_data):
+        """Update user profile with password handling"""
+        password = validated_data.pop('password', None)
+        
+        # Update basic user fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        
+        # Update password if provided
+        if password:
+            instance.set_password(password)
+        
+        instance.save()
+        return instance
 
 
 class UserManagementListSerializer(serializers.ModelSerializer):

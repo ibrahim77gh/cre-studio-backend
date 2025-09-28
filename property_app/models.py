@@ -341,6 +341,37 @@ class CampaignComment(models.Model):
             ).order_by('created_at')
 
 
+class CampaignCommentAttachment(models.Model):
+    """
+    File attachments for campaign comments.
+    """
+    comment = models.ForeignKey(
+        CampaignComment,
+        on_delete=models.CASCADE,
+        related_name='attachments'
+    )
+    file = models.FileField(upload_to='comment_attachments/')
+    original_filename = models.CharField(max_length=255)
+    file_size = models.PositiveIntegerField()
+    file_type = models.CharField(max_length=100, blank=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['uploaded_at']
+        verbose_name = "Comment Attachment"
+        verbose_name_plural = "Comment Attachments"
+
+    def __str__(self):
+        return f"Attachment for comment {self.comment.id}: {self.original_filename}"
+
+    def save(self, *args, **kwargs):
+        if not self.original_filename and self.file:
+            self.original_filename = self.file.name
+        if not self.file_size and self.file:
+            self.file_size = self.file.size
+        super().save(*args, **kwargs)
+
+
 class ClientNotification(models.Model):
     """
     Notifications for the client dashboard.

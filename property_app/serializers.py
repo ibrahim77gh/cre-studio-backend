@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import (
     CampaignBudget, CreativeAsset, Property, PropertyGroup, Campaign,
-    ClientNotification, CampaignDate, CampaignComment
+    ClientNotification, CampaignDate, CampaignComment, CampaignCommentAttachment
 )
 import json
 import os
@@ -288,19 +288,116 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
         return campaign
 
 
+class CampaignCommentAttachmentSerializer(serializers.ModelSerializer):
+    file_url = serializers.SerializerMethodField(read_only=True)
+    file_name = serializers.SerializerMethodField(read_only=True)
+    file_size_mb = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = CampaignCommentAttachment
+        fields = [
+            'id', 'file', 'file_url', 'file_name', 'original_filename',
+            'file_size', 'file_size_mb', 'file_type', 'uploaded_at'
+        ]
+        read_only_fields = ['id', 'file_url', 'file_name', 'file_size_mb', 'uploaded_at']
+
+    def get_file_url(self, obj):
+        """Return the URL of the uploaded file."""
+        if obj.file:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.file.url)
+            return obj.file.url
+        return None
+
+    def get_file_name(self, obj):
+        """Return the original filename."""
+        return obj.original_filename
+
+    def get_file_size_mb(self, obj):
+        """Return the file size in MB."""
+        if obj.file_size:
+            return round(obj.file_size / (1024 * 1024), 2)
+        return None
+
+    def validate_file(self, value):
+        """Validate file type and size."""
+        if value:
+            # Check file size (max 25MB)
+            max_size = 25 * 1024 * 1024  # 25MB in bytes
+            if value.size > max_size:
+                raise serializers.ValidationError(
+                    f"File size cannot exceed 25MB. Current size: {value.size / (1024*1024):.1f}MB"
+                )
+            
+            # Check file extension
+            allowed_extensions = [
+                '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp',  # Images
+                '.mp4', '.mov', '.avi', '.webm', '.mkv',  # Videos
+                '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',  # Documents
+                '.txt', '.csv', '.zip', '.rar', '.7z',  # Other files
+            ]
+            
+            file_ext = os.path.splitext(value.name)[1].lower()
+            if file_ext not in allowed_extensions:
+                raise serializers.ValidationError(
+                    f"File type '{file_ext}' is not allowed. "
+                    f"Allowed types: {', '.join(allowed_extensions)}"
+                )
+            
+            # Set file type based on extension
+            if file_ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']:
+                self.file_type = 'image'
+            elif file_ext in ['.mp4', '.mov', '.avi', '.webm', '.mkv']:
+                self.file_type = 'video'
+            elif file_ext in ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx']:
+                self.file_type = 'document'
+            else:
+                self.file_type = 'other'
+        
+        return value
+
+    def create(self, validated_data):
+        """Create attachment with proper file handling."""
+        if 'file' in validated_data:
+            file = validated_data['file']
+            validated_data['original_filename'] = file.name
+            validated_data['file_size'] = file.size
+            
+            # Set file type
+            file_ext = os.path.splitext(file.name)[1].lower()
+            if file_ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']:
+                validated_data['file_type'] = 'image'
+            elif file_ext in ['.mp4', '.mov', '.avi', '.webm', '.mkv']:
+                validated_data['file_type'] = 'video'
+            elif file_ext in ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx']:
+                validated_data['file_type'] = 'document'
+            else:
+                validated_data['file_type'] = 'other'
+        
+        return super().create(validated_data)
+
+
 class CampaignCommentSerializer(serializers.ModelSerializer):
     user_name = serializers.SerializerMethodField(read_only=True)
     user_email = serializers.SerializerMethodField(read_only=True)
     replies = serializers.SerializerMethodField(read_only=True)
     is_reply = serializers.SerializerMethodField(read_only=True)
     reply_count = serializers.SerializerMethodField(read_only=True)
+    attachments = CampaignCommentAttachmentSerializer(many=True, read_only=True)
+    attachment_files = serializers.ListField(
+        child=serializers.FileField(),
+        write_only=True,
+        required=False,
+        help_text="List of files to attach to the comment."
+    )
 
     class Meta:
         model = CampaignComment
         fields = [
             'id', 'campaign', 'user', 'user_name', 'user_email', 'parent_comment',
             'content', 'is_resolved', 'is_reply', 'reply_count', 'replies',
-            'created_at', 'updated_at'
+            'attachments', 'attachment_files', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'user', 'created_at', 'updated_at']
 
@@ -330,9 +427,21 @@ class CampaignCommentSerializer(serializers.ModelSerializer):
         return CampaignCommentSerializer(replies, many=True, context=self.context).data
 
     def create(self, validated_data):
-        """Create a new comment"""
+        """Create a new comment with attachments"""
+        attachment_files = validated_data.pop('attachment_files', [])
         validated_data['user'] = self.context['request'].user
-        return super().create(validated_data)
+        
+        # Create the comment
+        comment = super().create(validated_data)
+        
+        # Create attachments
+        for file in attachment_files:
+            CampaignCommentAttachment.objects.create(
+                comment=comment,
+                file=file
+            )
+        
+        return comment
 
     def validate(self, data):
         """Validate comment data"""

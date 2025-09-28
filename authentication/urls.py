@@ -6,7 +6,8 @@ from .views import (
     CustomTokenVerifyView,
     LogoutView,
     AdminUserViewSet,
-    UserManagementViewSet
+    UserManagementViewSet,
+    UserProfileViewSet
 )
 from rest_framework.routers import DefaultRouter
 
@@ -14,6 +15,7 @@ from rest_framework.routers import DefaultRouter
 router = DefaultRouter()
 router.register(r'manage-users', AdminUserViewSet, basename='manage-user')
 router.register(r'user-management', UserManagementViewSet, basename='user-management')
+router.register(r'profile', UserProfileViewSet, basename='profile')
 
 urlpatterns = [
     re_path(

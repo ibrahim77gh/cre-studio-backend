@@ -32,12 +32,20 @@ I've successfully built a comprehensive commenting and notification system aroun
 
 #### Comments API
 - `GET /api/comments/` - List all comments user has access to
-- `POST /api/comments/` - Create a new comment
+- `POST /api/comments/` - Create a new comment (with optional file attachments)
 - `GET /api/comments/{id}/` - Get specific comment details
 - `PUT/PATCH /api/comments/{id}/` - Update comment
 - `DELETE /api/comments/{id}/` - Delete comment
 - `POST /api/comments/{id}/mark_resolved/` - Mark comment as resolved
 - `GET /api/comments/by_campaign/?campaign_id={id}` - Get all comments for a campaign
+
+#### Comment Attachments API
+- `GET /api/comment-attachments/` - List all attachments user has access to
+- `POST /api/comment-attachments/` - Upload a new attachment
+- `GET /api/comment-attachments/{id}/` - Get specific attachment details
+- `PUT/PATCH /api/comment-attachments/{id}/` - Update attachment
+- `DELETE /api/comment-attachments/{id}/` - Delete attachment
+- `GET /api/comment-attachments/by_comment/?comment_id={id}` - Get all attachments for a comment
 
 #### Notifications API
 - `GET /api/notifications/` - List user's notifications
@@ -48,7 +56,7 @@ I've successfully built a comprehensive commenting and notification system aroun
 ### Creating a Comment
 
 ```javascript
-// Create a new comment
+// Create a new comment (without attachments)
 POST /api/comments/
 {
     "campaign": 123,
@@ -56,12 +64,26 @@ POST /api/comments/
     "parent_comment": null  // null for root comment
 }
 
-// Reply to an existing comment
+// Create a comment with file attachments
 POST /api/comments/
+Content-Type: multipart/form-data
+
 {
     "campaign": 123,
-    "content": "Thanks! It should go live next Monday.",
-    "parent_comment": 456  // ID of the comment being replied to
+    "content": "Here's the updated design with some reference images",
+    "parent_comment": null,
+    "attachment_files": [file1, file2, file3]  // File uploads
+}
+
+// Reply to an existing comment with attachments
+POST /api/comments/
+Content-Type: multipart/form-data
+
+{
+    "campaign": 123,
+    "content": "Thanks! Here are the requested changes.",
+    "parent_comment": 456,
+    "attachment_files": [file1, file2]
 }
 ```
 
@@ -148,6 +170,17 @@ POST /api/comments/456/mark_resolved/
 - is_resolved (BooleanField, default=False)
 - created_at (DateTimeField)
 - updated_at (DateTimeField)
+```
+
+### CampaignCommentAttachment
+```sql
+- id (Primary Key)
+- comment (ForeignKey to CampaignComment)
+- file (FileField, upload_to='comment_attachments/')
+- original_filename (CharField, max_length=255)
+- file_size (PositiveIntegerField)
+- file_type (CharField, max_length=100)
+- uploaded_at (DateTimeField)
 ```
 
 ### ClientNotification (Enhanced)

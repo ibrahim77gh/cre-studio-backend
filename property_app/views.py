@@ -4,11 +4,13 @@ from property_app.serializers import (
     PropertySerializer,
     ClientNotificationSerializer,
     CreativeAssetSerializer,
-    CampaignCommentSerializer
+    CampaignCommentSerializer,
+    CampaignCommentAttachmentSerializer
 )
 from .models import (
     Campaign, Property, PropertyGroup, UserPropertyMembership,
-    PropertyUserRole, ClientNotification, CreativeAsset, CampaignComment
+    PropertyUserRole, ClientNotification, CreativeAsset, CampaignComment,
+    CampaignCommentAttachment
 )
 from rest_framework import viewsets
 from rest_framework.exceptions import PermissionDenied
@@ -174,10 +176,11 @@ class CreativeAssetViewSet(viewsets.ModelViewSet):
 
 class CampaignCommentViewSet(viewsets.ModelViewSet):
     """
-    ViewSet for managing campaign comments with threading support.
+    ViewSet for managing campaign comments with threading support and file uploads.
     """
     serializer_class = CampaignCommentSerializer
     permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser)
 
     def get_queryset(self):
         """
@@ -294,4 +297,94 @@ class CampaignCommentViewSet(viewsets.ModelViewSet):
             'campaign_id': campaign_id,
             'campaign_name': str(campaign),
             'comments': serializer.data
+        })
+
+
+class CampaignCommentAttachmentViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing comment attachments.
+    """
+    serializer_class = CampaignCommentAttachmentSerializer
+    permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser)
+
+    def get_queryset(self):
+        """
+        Return attachments for comments the user has access to.
+        """
+        user = self.request.user
+        
+        if user.is_superuser:
+            return CampaignCommentAttachment.objects.all().select_related('comment__campaign', 'comment__user')
+        
+        # Get campaigns the user has access to
+        accessible_campaign_ids = set()
+        
+        # Campaigns where user has any role
+        user_campaigns = Campaign.objects.filter(
+            property__memberships__user=user,
+            property__memberships__role__in=[
+                PropertyUserRole.TENANT, 
+                PropertyUserRole.PROPERTY_ADMIN, 
+                PropertyUserRole.GROUP_ADMIN
+            ]
+        ).values_list('id', flat=True)
+        accessible_campaign_ids.update(user_campaigns)
+        
+        # Also include campaigns where user is group admin
+        group_admin_campaigns = Campaign.objects.filter(
+            property__property_group__memberships__user=user,
+            property__property_group__memberships__role=PropertyUserRole.GROUP_ADMIN
+        ).values_list('id', flat=True)
+        accessible_campaign_ids.update(group_admin_campaigns)
+        
+        return CampaignCommentAttachment.objects.filter(
+            comment__campaign_id__in=accessible_campaign_ids
+        ).select_related('comment__campaign', 'comment__user').order_by('-uploaded_at')
+
+    @action(detail=False, methods=['get'])
+    def by_comment(self, request):
+        """Get all attachments for a specific comment"""
+        comment_id = request.query_params.get('comment_id')
+        if not comment_id:
+            return Response(
+                {'error': 'comment_id parameter is required'}, 
+                status=400
+            )
+        
+        try:
+            comment = CampaignComment.objects.get(id=comment_id)
+        except CampaignComment.DoesNotExist:
+            return Response(
+                {'error': 'Comment not found'}, 
+                status=404
+            )
+        
+        # Check if user has access to this comment's campaign
+        user = request.user
+        has_access = (
+            user.is_superuser or
+            user.property_memberships.filter(
+                property=comment.campaign.property,
+                role__in=[
+                    PropertyUserRole.TENANT, 
+                    PropertyUserRole.PROPERTY_ADMIN, 
+                    PropertyUserRole.GROUP_ADMIN
+                ]
+            ).exists() or
+            user.property_memberships.filter(
+                property_group=comment.campaign.property.property_group,
+                role=PropertyUserRole.GROUP_ADMIN
+            ).exists()
+        )
+        
+        if not has_access:
+            raise PermissionDenied("You don't have access to this comment's attachments.")
+        
+        attachments = self.get_queryset().filter(comment=comment)
+        serializer = self.get_serializer(attachments, many=True)
+        
+        return Response({
+            'comment_id': comment_id,
+            'attachments': serializer.data
         })
