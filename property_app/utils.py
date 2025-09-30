@@ -510,7 +510,7 @@ def send_comment_notifications(comment):
     
     # Send email notifications asynchronously
     from .tasks import send_comment_email_notifications_task
-    # send_comment_email_notifications_task.delay(comment.id, [user.id for user in notification_users])
+    send_comment_email_notifications_task.delay(comment.id, [user.id for user in notification_users])
     print(f"Sent email notifications for comment {comment.id} to {len(notification_users)} users")
 
 
