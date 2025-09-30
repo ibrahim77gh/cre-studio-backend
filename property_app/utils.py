@@ -45,9 +45,9 @@ def extract_urls(text):
 
 # Pydantic models for structured outputs
 class MetaAdResponse(BaseModel):
-    headline: str  # max 30 characters
-    main_copy_options: List[str]  # 4 variations, each under 125 characters
-    desktop_display_copy: str  # under 300 characters
+    headline: str  # max 50 characters
+    main_copy_options: List[str]  # 5 variations, each max 200 characters
+    desktop_display_copy: str  # max 325 characters
     call_to_action: str
 
 class GoogleDisplayResponse(BaseModel):
@@ -91,12 +91,12 @@ def generate_meta_ad_content(messaging, primary_goal, target_audience, creative_
     Creative Context: {creative_context}
 
     Please provide:
-    1. A compelling headline (max 30 characters)
-    2. Four different main copy variations (each under 125 characters)
-    3. Desktop display copy (under 300 characters)
+    1. A compelling headline (max 50 characters, single line)
+    2. Five different main copy variations (each max 200 characters, 2-3 lines)
+    3. Desktop display copy (max 325 characters)
     4. An appropriate call-to-action
 
-    All content should be engaging, on-brand, and optimized for Meta's advertising platform.
+    IMPORTANT: Each text option should utilize as much of the character limit as possible while remaining engaging and on-brand. All content should be optimized for Meta's advertising platform.
     """
 
     try:
@@ -110,18 +110,8 @@ def generate_meta_ad_content(messaging, primary_goal, target_audience, creative_
         )
         return response.output_parsed
     except Exception as e:
-        # Fallback values
-        return MetaAdResponse(
-            headline=f"Exciting {primary_goal.title()}!",
-            main_copy_options=[
-                f"Discover amazing {primary_goal} opportunities!",
-                f"Join us for incredible experiences!",
-                f"Don't miss out on great deals!",
-                f"Experience the best we have to offer!"
-            ],
-            desktop_display_copy="Explore our latest offerings and discover something special!",
-            call_to_action=get_call_to_action(primary_goal)
-        )
+        # Return None if generation fails
+        return None
 
 def generate_google_display_content(messaging, primary_goal, target_audience, creative_context):
     """Generate all Google Display ad content using a single API call."""
@@ -134,11 +124,14 @@ def generate_google_display_content(messaging, primary_goal, target_audience, cr
     Creative Context: {creative_context}
 
     Please provide:
-    1. Five different short headlines (each under 30 characters)
-    2. One long headline (under 90 characters)
-    3. Five different descriptions (each under 90 characters)
+    1. Five different headlines (each exactly 30 characters)
+    2. One long headline (exactly 90 characters)
+    3. Five different descriptions (each exactly 90 characters)
 
-    All content should be optimized for Google Display campaigns and drive the specified goal.
+    CRITICAL REQUIREMENTS:
+    - Each text option should utilize the full character limit as much as possible
+    - NO exclamation marks are allowed in any Google content
+    - All content should be optimized for Google Display campaigns and drive the specified goal
     """
 
     try:
@@ -152,34 +145,8 @@ def generate_google_display_content(messaging, primary_goal, target_audience, cr
         )
         return response.output_parsed
     except Exception as e:
-        # Fallback values
-        return GoogleDisplayResponse(
-            headlines=[
-                f"Great {primary_goal.title()}",
-                "Discover Now",
-                "Join Today",
-                "Learn More",
-                "Get Started"
-            ],
-            long_headline="Discover Amazing Opportunities and Experiences",
-            descriptions=[
-                f"Perfect for {target_audience[:20]}...",
-                "Experience the best in our offerings",
-                "Join thousands of satisfied customers",
-                "Quality you can trust and depend on",
-                "Start your journey with us today"
-            ]
-        )
-
-def get_call_to_action(primary_goal):
-    """Determine call to action based on primary goal."""
-    cta_map = {
-        'awareness': 'Learn More',
-        'consideration': 'Shop Now',
-        'conversion': 'Sign Up',
-        'retention': 'Contact Us'
-    }
-    return cta_map.get(primary_goal.lower(), 'Learn More')
+        # Return None if generation fails
+        return None
 
 def extract_dates_with_ai(timeframe_text, pmcb_data):
     """
@@ -451,16 +418,18 @@ def map_pmcb_to_campaign_fields(campaign, pmcb_data):
 
     # Generate Meta content with single API call
     meta_content = generate_meta_ad_content(messaging, primary_goal, target_audience, creative_context)
-    campaign.meta_headline = meta_content.headline
-    campaign.meta_main_copy_options = meta_content.main_copy_options
-    campaign.meta_desktop_display_copy = meta_content.desktop_display_copy
-    campaign.meta_call_to_action = meta_content.call_to_action
+    if meta_content:
+        campaign.meta_headline = meta_content.headline
+        campaign.meta_main_copy_options = meta_content.main_copy_options
+        campaign.meta_desktop_display_copy = meta_content.desktop_display_copy
+        campaign.meta_call_to_action = meta_content.call_to_action
 
     # Generate Google Display content with single API call
     google_content = generate_google_display_content(messaging, primary_goal, target_audience, creative_context)
-    campaign.google_headlines = google_content.headlines
-    campaign.google_long_headline = google_content.long_headline
-    campaign.google_descriptions = google_content.descriptions
+    if google_content:
+        campaign.google_headlines = google_content.headlines
+        campaign.google_long_headline = google_content.long_headline
+        campaign.google_descriptions = google_content.descriptions
 
     # Ready status
     status = pmcb_data.get('status', '')

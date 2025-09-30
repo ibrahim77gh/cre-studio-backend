@@ -220,7 +220,7 @@ else:
     SITE_URL = os.environ.get('APP_URL')
     GOOGLE_REDIRECT_URI = os.environ.get('GOOGLE_REDIRECT_URI')
 
-SITE_NAME = 'REALTIME AGENT'
+SITE_NAME = 'Retail Studio'
 
 CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
 CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
