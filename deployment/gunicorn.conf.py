@@ -9,7 +9,7 @@ backlog = 2048
 workers = multiprocessing.cpu_count() * 2 + 1
 worker_class = "sync"
 worker_connections = 1000
-timeout = 30
+timeout = 120  # Increase timeout for large file uploads
 keepalive = 2
 
 # Restart workers after this many requests, to help prevent memory leaks
@@ -40,7 +40,7 @@ tmp_upload_dir = None
 preload_app = True
 
 # Worker timeout
-graceful_timeout = 30
+graceful_timeout = 120  # Increase timeout for large file uploads
 
 # Security
 limit_request_line = 4094

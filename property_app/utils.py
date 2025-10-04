@@ -148,55 +148,6 @@ def generate_google_display_content(messaging, primary_goal, target_audience, cr
         # Return None if generation fails
         return None
 
-def extract_dates_with_ai(timeframe_text, pmcb_data):
-    """
-    Use AI to extract campaign dates and event dates from timeframe text and other PMCB data.
-    """
-    # Combine all relevant text that might contain dates
-    additional_context = ""
-    if pmcb_data:
-        additional_context += f"Additional Notes: {pmcb_data.get('additionalNotes', '')}\n"
-        additional_context += f"Messaging: {pmcb_data.get('messaging', '')}\n"
-        additional_context += f"Creative Context: {pmcb_data.get('creativeContext', '')}\n"
-    
-    prompt = f"""
-    Extract campaign dates and event dates from the following text. Look for:
-    1. Campaign start and end dates (the overall campaign duration)
-    2. Specific event dates mentioned (sales, promotions, grand openings, holidays, etc.)
-    
-    Timeframe: {timeframe_text}
-    
-    Additional Context:
-    {additional_context}
-    
-    Please extract:
-    - campaign_start_date: The overall campaign start date (YYYY-MM-DD format)
-    - campaign_end_date: The overall campaign end date (YYYY-MM-DD format)  
-    - event_dates: List of specific events with their dates, titles, and types
-    
-    Date types should be one of: 'event', 'milestone', 'deadline', 'promotion'
-    
-    If no clear dates are found, return null for start/end dates and empty array for events.
-    """
-
-    try:
-        response = client.responses.parse(
-            model=MODEL,
-            input=[
-                {"role": "system", "content": "You are an expert at extracting dates from marketing campaign text. Extract all relevant dates in the specified format."},
-                {"role": "user", "content": prompt}
-            ],
-            text_format=DateExtractionResponse,
-        )
-        return response.output_parsed
-    except Exception as e:
-        # Fallback - return empty response
-        return DateExtractionResponse(
-            campaign_start_date=None,
-            campaign_end_date=None,
-            event_dates=[]
-        )
-
 def extract_budget_with_ai(budget_text, pmcb_data):
     """
     Use AI to extract budget information from budget text and other PMCB data.
@@ -324,63 +275,6 @@ def parse_budget_from_pmcb(campaign, pmcb_data):
             # Save the budget
             campaign_budget.save()
 
-def parse_dates_from_pmcb(campaign, pmcb_data):
-    """
-    Parse date information from pmcb_form_data and create CampaignDate instances.
-    Uses AI to extract campaign start/end dates and event dates from timeframe text.
-    """
-    if not pmcb_data:
-        return
-    
-    # Extract timeframe information
-    timeframe = pmcb_data.get('timeframe', '')
-    
-    if timeframe:
-        # Use AI to extract dates from timeframe text
-        extracted_dates = extract_dates_with_ai(timeframe, pmcb_data)
-        
-        # Set campaign start and end dates if found
-        if extracted_dates.campaign_start_date:
-            try:
-                campaign.start_date = datetime.strptime(extracted_dates.campaign_start_date, '%Y-%m-%d').date()
-            except ValueError:
-                pass
-                
-        if extracted_dates.campaign_end_date:
-            try:
-                campaign.end_date = datetime.strptime(extracted_dates.campaign_end_date, '%Y-%m-%d').date()
-            except ValueError:
-                pass
-        
-        # Create CampaignDate instances for extracted event dates
-        for extracted_event in extracted_dates.event_dates:
-            try:
-                event_date = datetime.strptime(extracted_event.date, '%Y-%m-%d').date()
-                
-                # Map the date type to our enum
-                date_type_mapping = {
-                    'event': CampaignDateType.EVENT,
-                    'milestone': CampaignDateType.MILESTONE,
-                    'deadline': CampaignDateType.DEADLINE,
-                    'promotion': CampaignDateType.PROMOTION
-                }
-                date_type = date_type_mapping.get(extracted_event.date_type, CampaignDateType.EVENT)
-                
-                # Check if this date already exists to avoid duplicates
-                if not campaign.campaign_dates.filter(
-                    date=event_date,
-                    title=extracted_event.title
-                ).exists():
-                    CampaignDate.objects.create(
-                        campaign=campaign,
-                        date=event_date,
-                        date_type=date_type,
-                        title=extracted_event.title,
-                        description=extracted_event.description or ''
-                    )
-            except ValueError:
-                continue
-
 
 def map_pmcb_to_campaign_fields(campaign, pmcb_data):
     """
@@ -391,10 +285,7 @@ def map_pmcb_to_campaign_fields(campaign, pmcb_data):
         return
 
     # Direct mappings
-    campaign.center = pmcb_data.get('centerName', '')
-
-    # Parse and create campaign dates
-    parse_dates_from_pmcb(campaign, pmcb_data)
+    campaign.center = pmcb_data.get('keyEvent', '')
 
     # Parse and create campaign budget
     parse_budget_from_pmcb(campaign, pmcb_data)
