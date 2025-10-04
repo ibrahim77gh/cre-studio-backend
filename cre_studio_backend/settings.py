@@ -227,17 +227,18 @@ CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
 TOKEN_URI = 'https://oauth2.googleapis.com/token'
 
 # Django CORS Headers settings
-if DEBUG:
-    CORS_ALLOW_ALL_ORIGINS = True
-else:
-    CORS_ALLOW_ALL_ORIGINS = False
-    frontend_url = os.environ.get('FRONTEND_URL', 'https://yourdomain.com')
-    # Remove trailing slash if present to avoid CORS issues
-    frontend_url = frontend_url.rstrip('/')
-    CORS_ALLOWED_ORIGINS = [
-        frontend_url,
-        frontend_url + '/',  # Include both with and without trailing slash
-    ]
+CORS_ALLOW_ALL_ORIGINS = True
+# if DEBUG:
+#     CORS_ALLOW_ALL_ORIGINS = True
+# else:
+#     CORS_ALLOW_ALL_ORIGINS = False
+#     frontend_url = os.environ.get('FRONTEND_URL', 'https://yourdomain.com')
+#     # Remove trailing slash if present to avoid CORS issues
+#     frontend_url = frontend_url.rstrip('/')
+#     CORS_ALLOWED_ORIGINS = [
+#         frontend_url,
+#         frontend_url + '/',  # Include both with and without trailing slash
+#     ]
 
 # Additional CORS settings for media files
 CORS_ALLOW_CREDENTIALS = True
