@@ -71,7 +71,7 @@ MIDDLEWARE = [
 
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-CORS_ALLOW_ALL_ORIGINS = True
+# CORS_ALLOW_ALL_ORIGINS will be set conditionally below
 
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
@@ -231,8 +231,12 @@ if DEBUG:
     CORS_ALLOW_ALL_ORIGINS = True
 else:
     CORS_ALLOW_ALL_ORIGINS = False
+    frontend_url = os.environ.get('FRONTEND_URL', 'https://yourdomain.com')
+    # Remove trailing slash if present to avoid CORS issues
+    frontend_url = frontend_url.rstrip('/')
     CORS_ALLOWED_ORIGINS = [
-        os.environ.get('FRONTEND_URL', 'https://yourdomain.com'),
+        frontend_url,
+        frontend_url + '/',  # Include both with and without trailing slash
     ]
 
 # Additional CORS settings for media files
@@ -248,6 +252,14 @@ CORS_ALLOWED_HEADERS = [
     'user-agent',
     'x-csrftoken',
     'x-requested-with',
+]
+CORS_ALLOWED_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
 ]
 
 DJOSER = {
