@@ -7,7 +7,8 @@ from .views import (
     LogoutView,
     AdminUserViewSet,
     UserManagementViewSet,
-    UserProfileViewSet
+    UserProfileViewSet,
+    UserStatsView
 )
 from rest_framework.routers import DefaultRouter
 
@@ -27,5 +28,6 @@ urlpatterns = [
     path('jwt/refresh/', CustomTokenRefreshView.as_view()),
     path('jwt/verify/', CustomTokenVerifyView.as_view()),
     path('logout/', LogoutView.as_view()),
+    path('user-stats/', UserStatsView.as_view(), name='user-stats'),
     path('', include(router.urls)),
 ]

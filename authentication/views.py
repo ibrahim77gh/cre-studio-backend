@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.db import models
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, viewsets, filters, permissions
@@ -14,7 +15,8 @@ from .serializers import (
     UserManagementCreateSerializer,
     UserManagementUpdateSerializer,
     UserManagementListSerializer,
-    UserProfileUpdateSerializer
+    UserProfileUpdateSerializer,
+    UserStatsSerializer
 )
 from .models import CustomUser
 from .permissions import CanManageUsers
@@ -386,3 +388,45 @@ class UserProfileViewSet(viewsets.ModelViewSet):
             {'error': 'Profile deletion not allowed through this endpoint'}, 
             status=status.HTTP_405_METHOD_NOT_ALLOWED
         )
+
+
+class UserStatsView(APIView):
+    """
+    API endpoint to get user statistics.
+    Returns counts for total_users, active_users, admin_users, and tenants.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        """
+        Get user statistics for all users in the system.
+        """
+        # Get all users
+        base_queryset = CustomUser.objects.all()
+        
+        # Calculate statistics
+        total_users = base_queryset.count()
+        active_users = base_queryset.filter(is_active=True).count()
+        
+        # Admin users: superusers + property admins + group admins
+        admin_users = base_queryset.filter(
+            models.Q(is_superuser=True) |
+            models.Q(property_memberships__role__in=[PropertyUserRole.PROPERTY_ADMIN, PropertyUserRole.GROUP_ADMIN])
+        ).distinct().count()
+        
+        # Tenants: users with tenant role
+        tenants = base_queryset.filter(
+            property_memberships__role=PropertyUserRole.TENANT
+        ).distinct().count()
+        
+        # Prepare response data
+        stats_data = {
+            'total_users': total_users,
+            'active_users': active_users,
+            'admin_users': admin_users,
+            'tenants': tenants
+        }
+        
+        # Serialize and return
+        serializer = UserStatsSerializer(stats_data)
+        return Response(serializer.data, status=status.HTTP_200_OK)
