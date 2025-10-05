@@ -45,14 +45,14 @@ def extract_urls(text):
 
 # Pydantic models for structured outputs
 class MetaAdResponse(BaseModel):
-    headline: str  # max 50 characters
+    headline: List[str]  # 5 headlines, each max 50 characters
     main_copy_options: List[str]  # 5 variations, each max 200 characters
     desktop_display_copy: str  # max 325 characters
     call_to_action: str
 
 class GoogleDisplayResponse(BaseModel):
     headlines: List[str]  # 5 headlines, each under 30 characters
-    long_headline: str  # under 90 characters
+    long_headline: List[str]  # 3 long headlines, each under 90 characters
     descriptions: List[str]  # 5 descriptions, each under 90 characters
 
 class ExtractedDate(BaseModel):
@@ -77,10 +77,8 @@ class ExtractedBudget(BaseModel):
 
 class BudgetExtractionResponse(BaseModel):
     budget: ExtractedBudget
-    confidence_level: str  # 'high', 'medium', 'low'
-    extracted_values: List[str] = []  # List of values that were found in the text
 
-def generate_meta_ad_content(messaging, primary_goal, target_audience, creative_context):
+def generate_meta_ad_content(messaging, primary_goal, target_audience, campaign_name):
     """Generate all Meta ad content using a single API call."""
     prompt = f"""
     Generate comprehensive Meta ad content based on the following information:
@@ -88,10 +86,10 @@ def generate_meta_ad_content(messaging, primary_goal, target_audience, creative_
     Messaging: {messaging}
     Primary Goal: {primary_goal}
     Target Audience: {target_audience}
-    Creative Context: {creative_context}
+    Campaign Name: {campaign_name}
 
     Please provide:
-    1. A compelling headline (max 50 characters, single line)
+    1. 5 different compelling headline (max 50 characters, single line)
     2. Five different main copy variations (each max 200 characters, 2-3 lines)
     3. Desktop display copy (max 325 characters)
     4. An appropriate call-to-action
@@ -113,7 +111,7 @@ def generate_meta_ad_content(messaging, primary_goal, target_audience, creative_
         # Return None if generation fails
         return None
 
-def generate_google_display_content(messaging, primary_goal, target_audience, creative_context):
+def generate_google_display_content(messaging, primary_goal, target_audience, campaign_name):
     """Generate all Google Display ad content using a single API call."""
     prompt = f"""
     Generate comprehensive Google Display ad content based on the following information:
@@ -121,11 +119,11 @@ def generate_google_display_content(messaging, primary_goal, target_audience, cr
     Messaging: {messaging}
     Primary Goal: {primary_goal}
     Target Audience: {target_audience}
-    Creative Context: {creative_context}
+    Campaign Name: {campaign_name}
 
     Please provide:
     1. Five different headlines (each exactly 30 characters)
-    2. One long headline (exactly 90 characters)
+    2. Three long headlines (exactly 90 characters)
     3. Five different descriptions (each exactly 90 characters)
 
     CRITICAL REQUIREMENTS:
@@ -150,12 +148,11 @@ def generate_google_display_content(messaging, primary_goal, target_audience, cr
 
 def extract_budget_with_ai(budget_text, pmcb_data):
     """
-    Use AI to extract budget information from budget text and other PMCB data.
-    Only extracts explicitly mentioned budget amounts, does not generate or guess values.
+    Use AI to extract budget information from budget text.
+    Only extracts explicitly mentioned budget amounts.
     """
     prompt = f"""
-    Extract budget information from the following text. ONLY extract explicitly mentioned budget amounts.
-    DO NOT generate, estimate, or make up any budget numbers that are not clearly stated in the text.
+    Extract budget information from the following text. Only extract explicitly mentioned budget amounts.
     
     Budget Information: {budget_text}
     
@@ -165,13 +162,6 @@ def extract_budget_with_ai(budget_text, pmcb_data):
     - Meta/Facebook advertising budget (gross and net)
     - Google Display advertising budget (gross and net)
     - Creative charges or deductions
-    
-    IMPORTANT RULES:
-    1. Only extract numbers that are explicitly mentioned in the text
-    2. If a budget amount is not clearly specified, leave it as null
-    3. Do not calculate or estimate any values
-    4. Return confidence level: 'high' if amounts are clearly stated, 'medium' if somewhat clear, 'low' if unclear
-    5. List all the specific values/amounts you found in the extracted_values array
     
     If no budget information is found, return null values for all budget fields.
     """
@@ -189,9 +179,7 @@ def extract_budget_with_ai(budget_text, pmcb_data):
     except Exception as e:
         # Fallback - return empty response
         return BudgetExtractionResponse(
-            budget=ExtractedBudget(),
-            confidence_level='low',
-            extracted_values=[]
+            budget=ExtractedBudget()
         )
 
 def parse_budget_from_pmcb(campaign, pmcb_data):
@@ -209,7 +197,7 @@ def parse_budget_from_pmcb(campaign, pmcb_data):
         # Use AI to extract budget information
         extracted_budget_data = extract_budget_with_ai(budget_text, pmcb_data)
         
-        if extracted_budget_data.confidence_level != 'low' or extracted_budget_data.extracted_values:
+        if extracted_budget_data.budget:
             # Get or create campaign budget
             campaign_budget, created = CampaignBudget.objects.get_or_create(
                 campaign=campaign,
@@ -285,7 +273,8 @@ def map_pmcb_to_campaign_fields(campaign, pmcb_data):
         return
 
     # Direct mappings
-    campaign.center = pmcb_data.get('keyEvent', '')
+    campaign_name = pmcb_data.get('keyEvent', '')
+    campaign.center = campaign_name
 
     # Parse and create campaign budget
     parse_budget_from_pmcb(campaign, pmcb_data)
@@ -308,7 +297,7 @@ def map_pmcb_to_campaign_fields(campaign, pmcb_data):
     creative_context = pmcb_data.get('creativeContext', '')
 
     # Generate Meta content with single API call
-    meta_content = generate_meta_ad_content(messaging, primary_goal, target_audience, creative_context)
+    meta_content = generate_meta_ad_content(messaging, primary_goal, target_audience, campaign_name)
     if meta_content:
         campaign.meta_headline = meta_content.headline
         campaign.meta_main_copy_options = meta_content.main_copy_options
@@ -316,7 +305,7 @@ def map_pmcb_to_campaign_fields(campaign, pmcb_data):
         campaign.meta_call_to_action = meta_content.call_to_action
 
     # Generate Google Display content with single API call
-    google_content = generate_google_display_content(messaging, primary_goal, target_audience, creative_context)
+    google_content = generate_google_display_content(messaging, primary_goal, target_audience, campaign_name)
     if google_content:
         campaign.google_headlines = google_content.headlines
         campaign.google_long_headline = google_content.long_headline

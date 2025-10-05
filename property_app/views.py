@@ -5,7 +5,8 @@ from property_app.serializers import (
     ClientNotificationSerializer,
     CreativeAssetSerializer,
     CampaignCommentSerializer,
-    CampaignCommentAttachmentSerializer
+    CampaignCommentAttachmentSerializer,
+    CampaignStatsSerializer
 )
 from .models import (
     Campaign, Property, PropertyGroup, UserPropertyMembership,
@@ -18,6 +19,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
 from .utils import send_comment_notifications
 
 
@@ -25,6 +27,7 @@ class PropertyViewSet(viewsets.ModelViewSet):
     queryset = Property.objects.all()
     serializer_class = PropertySerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = None
 
     def get_queryset(self):
         """
@@ -80,18 +83,78 @@ class CampaignSubmissionViewSet(viewsets.ModelViewSet):
     """
     serializer_class = CampaignSubmissionSerializer
     parser_classes = (MultiPartParser, FormParser)
+    permission_classes = [IsAuthenticated]
+    pagination_class = PageNumberPagination
 
     def get_queryset(self):
-        queryset = Campaign.objects.all()
+        """
+        Return campaigns filtered by property_id for list views.
+        For detail views (when pk is provided), return all campaigns to allow lookup by ID.
+        """
+        # For detail views (retrieve, update, delete), allow access to any campaign
+        if self.action in ['retrieve', 'update', 'partial_update', 'destroy']:
+            return Campaign.objects.all()
+        
+        # For list views, require property_id filter
         property_id = self.request.query_params.get("property_id")
-        if property_id:
-            queryset = queryset.filter(property_id=property_id)
+        if not property_id:
+            return Campaign.objects.none()
+        
+        queryset = Campaign.objects.filter(property_id=property_id)
         return queryset
+
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        """
+        Get campaign statistics for a specific property.
+        Usage: GET /api/campaigns/stats/?property_id=123
+        """
+        property_id = request.query_params.get('property_id')
+        if not property_id:
+            return Response(
+                {'error': 'property_id parameter is required'}, 
+                status=400
+            )
+        
+        try:
+            property_obj = Property.objects.get(id=property_id)
+        except Property.DoesNotExist:
+            return Response(
+                {'error': 'Property not found'}, 
+                status=404
+            )
+        
+        # Get all campaigns for this property
+        campaigns = Campaign.objects.filter(property_id=property_id)
+        
+        # Calculate statistics
+        total_campaigns = campaigns.count()
+        
+        # Approval status counts
+        pending_count = campaigns.filter(approval_status=Campaign.ApprovalStatus.PENDING).count()
+        admin_approved_count = campaigns.filter(approval_status=Campaign.ApprovalStatus.ADMIN_APPROVED).count()
+        client_approved_count = campaigns.filter(approval_status=Campaign.ApprovalStatus.CLIENT_APPROVED).count()
+        fully_approved_count = campaigns.filter(approval_status=Campaign.ApprovalStatus.FULLY_APPROVED).count()
+        
+        # Prepare response data
+        stats_data = {
+            'property_id': property_obj.id,
+            'property_name': property_obj.name,
+            'total_campaigns': total_campaigns,
+            'pending_count': pending_count,
+            'admin_approved_count': admin_approved_count,
+            'client_approved_count': client_approved_count,
+            'fully_approved_count': fully_approved_count,
+        }
+        
+        serializer = CampaignStatsSerializer(stats_data)
+        return Response(serializer.data)
 
 
 class PropertyGroupViewSet(viewsets.ModelViewSet):
     queryset = PropertyGroup.objects.all()
     serializer_class = PropertyGroupSerializer
+    pagination_class = None
 
     def get_queryset(self):
         property_group_id = self.kwargs.get('pk', None)
@@ -103,6 +166,7 @@ class PropertyGroupViewSet(viewsets.ModelViewSet):
 class ClientNotificationViewSet(viewsets.ModelViewSet):
     serializer_class = ClientNotificationSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = None
 
     def get_queryset(self):
         notifications = ClientNotification.objects.filter(user=self.request.user)

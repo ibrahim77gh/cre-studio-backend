@@ -511,3 +511,16 @@ class ClientNotificationSerializer(serializers.ModelSerializer):
             content = obj.comment.content
             return content[:100] + '...' if len(content) > 100 else content
         return None
+
+
+class CampaignStatsSerializer(serializers.Serializer):
+    """
+    Serializer for campaign statistics by status.
+    """
+    property_id = serializers.IntegerField()
+    property_name = serializers.CharField()
+    total_campaigns = serializers.IntegerField()
+    pending_count = serializers.IntegerField()
+    admin_approved_count = serializers.IntegerField()
+    client_approved_count = serializers.IntegerField()
+    fully_approved_count = serializers.IntegerField()
