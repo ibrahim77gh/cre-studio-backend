@@ -202,6 +202,7 @@ nano /var/www/cre_studio_backend/.env
 ```
 
 Update the following variables:
+nano /etc/nginx/sites-available/cre_studio_backend
 - `SECRET_KEY`: Generate a new secret key
 - `EMAIL_HOST_USER`: Your Gmail address
 - `EMAIL_HOST_PASSWORD`: Your Gmail app password

@@ -466,3 +466,13 @@ class UserManagementListSerializer(serializers.ModelSerializer):
             }
             
         return role_info
+
+
+class UserStatsSerializer(serializers.Serializer):
+    """
+    Serializer for user statistics data.
+    """
+    total_users = serializers.IntegerField()
+    active_users = serializers.IntegerField()
+    admin_users = serializers.IntegerField()
+    tenants = serializers.IntegerField()
