@@ -524,15 +524,3 @@ class CampaignStatsSerializer(serializers.Serializer):
     admin_approved_count = serializers.IntegerField()
     client_approved_count = serializers.IntegerField()
     fully_approved_count = serializers.IntegerField()
-
-
-class UserStatsSerializer(serializers.Serializer):
-    """
-    Serializer for user statistics by role for a property.
-    """
-    property_id = serializers.IntegerField()
-    property_name = serializers.CharField()
-    total_users = serializers.IntegerField()
-    active_users = serializers.IntegerField()
-    admin_users = serializers.IntegerField()
-    tenants = serializers.IntegerField()
