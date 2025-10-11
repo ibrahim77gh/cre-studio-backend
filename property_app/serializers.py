@@ -1,7 +1,8 @@
 from rest_framework import serializers
 from .models import (
     CampaignBudget, CreativeAsset, Property, PropertyGroup, Campaign,
-    ClientNotification, CampaignDate, CampaignComment, CampaignCommentAttachment
+    ClientNotification, CampaignDate, CampaignComment, CampaignCommentAttachment,
+    Configuration
 )
 import json
 import os
@@ -524,3 +525,96 @@ class CampaignStatsSerializer(serializers.Serializer):
     admin_approved_count = serializers.IntegerField()
     client_approved_count = serializers.IntegerField()
     fully_approved_count = serializers.IntegerField()
+
+
+class ConfigurationSerializer(serializers.ModelSerializer):
+    """
+    Serializer for Configuration model
+    """
+    property_name = serializers.CharField(source='property.name', read_only=True)
+    created_by_name = serializers.SerializerMethodField(read_only=True)
+    
+    class Meta:
+        model = Configuration
+        fields = [
+            'id', 'config_type', 'name', 'description', 'system_prompt', 
+            'user_prompt_template', 'available_variables', 'property', 
+            'property_name', 'is_active', 'is_default', 'created_by', 
+            'created_by_name', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_by', 'created_at', 'updated_at']
+
+    def get_created_by_name(self, obj):
+        """Return the name of the user who created this configuration"""
+        if obj.created_by:
+            return f"{obj.created_by.first_name} {obj.created_by.last_name}".strip() or obj.created_by.email
+        return None
+
+    def validate_available_variables(self, value):
+        """Validate the available_variables JSON field"""
+        if not isinstance(value, list):
+            raise serializers.ValidationError("Available variables must be a list")
+        
+        for var in value:
+            if not isinstance(var, dict):
+                raise serializers.ValidationError("Each variable must be a dictionary")
+            if 'name' not in var or 'description' not in var:
+                raise serializers.ValidationError("Each variable must have 'name' and 'description' fields")
+        
+        return value
+
+    def validate(self, data):
+        """Validate the entire configuration"""
+        # Check if this would create a duplicate default
+        if data.get('is_default', False):
+            existing_default = Configuration.objects.filter(
+                config_type=data['config_type'],
+                property=data.get('property'),
+                is_default=True
+            ).exclude(pk=self.instance.pk if self.instance else None)
+            
+            if existing_default.exists():
+                scope = f" for property {data['property'].name}" if data.get('property') else " globally"
+                raise serializers.ValidationError(
+                    f"A default configuration already exists for {data['config_type']}{scope}"
+                )
+        
+        return data
+
+
+class ConfigurationListSerializer(serializers.ModelSerializer):
+    """
+    Simplified serializer for listing configurations
+    """
+    property_name = serializers.CharField(source='property.name', read_only=True)
+    created_by_name = serializers.SerializerMethodField(read_only=True)
+    
+    class Meta:
+        model = Configuration
+        fields = [
+            'id', 'config_type', 'name', 'description', 'property_name', 
+            'is_active', 'is_default', 'created_by_name', 'created_at'
+        ]
+
+    def get_created_by_name(self, obj):
+        """Return the name of the user who created this configuration"""
+        if obj.created_by:
+            return f"{obj.created_by.first_name} {obj.created_by.last_name}".strip() or obj.created_by.email
+        return None
+
+
+class ConfigurationVariableSerializer(serializers.Serializer):
+    """
+    Serializer for available variables in configurations
+    """
+    name = serializers.CharField()
+    description = serializers.CharField()
+
+
+class ConfigurationPreviewSerializer(serializers.Serializer):
+    """
+    Serializer for previewing resolved prompts with variables
+    """
+    system_prompt = serializers.CharField()
+    user_prompt = serializers.CharField()
+    variables = ConfigurationVariableSerializer(many=True)

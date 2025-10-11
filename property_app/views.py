@@ -6,12 +6,15 @@ from property_app.serializers import (
     CreativeAssetSerializer,
     CampaignCommentSerializer,
     CampaignCommentAttachmentSerializer,
-    CampaignStatsSerializer
+    CampaignStatsSerializer,
+    ConfigurationSerializer,
+    ConfigurationListSerializer,
+    ConfigurationPreviewSerializer
 )
 from .models import (
     Campaign, Property, PropertyGroup, UserPropertyMembership,
     PropertyUserRole, ClientNotification, CreativeAsset, CampaignComment,
-    CampaignCommentAttachment
+    CampaignCommentAttachment, Configuration
 )
 from rest_framework import viewsets
 from rest_framework.exceptions import PermissionDenied
@@ -452,3 +455,177 @@ class CampaignCommentAttachmentViewSet(viewsets.ModelViewSet):
             'comment_id': comment_id,
             'attachments': serializer.data
         })
+
+
+class ConfigurationViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing system configurations (AI prompts)
+    Only super users can manage configurations
+    """
+    queryset = Configuration.objects.all()
+    serializer_class = ConfigurationSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = PageNumberPagination
+    
+    def get_queryset(self):
+        """Filter configurations based on user permissions and query parameters"""
+        queryset = Configuration.objects.all()
+        
+        # Filter by config type if provided
+        config_type = self.request.query_params.get('config_type')
+        if config_type:
+            queryset = queryset.filter(config_type=config_type)
+        
+        # Filter by property if provided
+        property_id = self.request.query_params.get('property_id')
+        if property_id:
+            queryset = queryset.filter(property_id=property_id)
+        
+        # Filter by scope (global vs property-specific)
+        scope = self.request.query_params.get('scope')
+        if scope == 'global':
+            queryset = queryset.filter(property__isnull=True)
+        elif scope == 'property':
+            queryset = queryset.filter(property__isnull=False)
+        
+        return queryset.order_by('config_type', 'property__name', 'name')
+    
+    def get_serializer_class(self):
+        """Return appropriate serializer based on action"""
+        if self.action == 'list':
+            return ConfigurationListSerializer
+        elif self.action == 'preview':
+            return ConfigurationPreviewSerializer
+        return ConfigurationSerializer
+    
+    def perform_create(self, serializer):
+        """Set the created_by field to the current user"""
+        serializer.save(created_by=self.request.user)
+    
+    def perform_update(self, serializer):
+        """Update the configuration"""
+        serializer.save()
+    
+    @action(detail=True, methods=['post'])
+    def preview(self, request, pk=None):
+        """
+        Preview a configuration with sample variables
+        """
+        config = self.get_object()
+        variables = request.data.get('variables', {})
+        
+        try:
+            resolved_system_prompt = config.get_resolved_prompt(**variables)
+            resolved_user_prompt = config.get_resolved_user_prompt(**variables)
+            
+            return Response({
+                'system_prompt': resolved_system_prompt,
+                'user_prompt': resolved_user_prompt,
+                'variables': config.available_variables
+            })
+        except Exception as e:
+            return Response({
+                'error': f'Error resolving variables: {str(e)}'
+            }, status=400)
+    
+    @action(detail=False, methods=['get'])
+    def types(self, request):
+        """
+        Get available configuration types
+        """
+        return Response({
+            'config_types': [
+                {'value': choice[0], 'label': choice[1]}
+                for choice in Configuration.ConfigType.choices
+            ]
+        })
+    
+    @action(detail=False, methods=['get'])
+    def variables(self, request):
+        """
+        Get available variables for a specific configuration type
+        """
+        config_type = request.query_params.get('config_type')
+        if not config_type:
+            return Response({'error': 'config_type parameter is required'}, status=400)
+        
+        # Define default variables for each configuration type
+        default_variables = {
+            Configuration.ConfigType.META_AD_COPYWRITER: [
+                {'name': 'messaging', 'description': 'The main messaging for the campaign'},
+                {'name': 'primary_goal', 'description': 'The primary goal of the campaign'},
+                {'name': 'target_audience', 'description': 'The target audience for the campaign'},
+                {'name': 'campaign_name', 'description': 'The name of the campaign'},
+                {'name': 'property_name', 'description': 'The name of the property'},
+                {'name': 'brand_tone', 'description': 'The brand tone and voice'},
+            ],
+            Configuration.ConfigType.GOOGLE_ADS_COPYWRITER: [
+                {'name': 'messaging', 'description': 'The main messaging for the campaign'},
+                {'name': 'primary_goal', 'description': 'The primary goal of the campaign'},
+                {'name': 'target_audience', 'description': 'The target audience for the campaign'},
+                {'name': 'campaign_name', 'description': 'The name of the campaign'},
+                {'name': 'property_name', 'description': 'The name of the property'},
+                {'name': 'brand_tone', 'description': 'The brand tone and voice'},
+            ],
+            Configuration.ConfigType.CUSTOM: [
+                {'name': 'custom_variable_1', 'description': 'Custom variable 1'},
+                {'name': 'custom_variable_2', 'description': 'Custom variable 2'},
+            ]
+        }
+        
+        variables = default_variables.get(config_type, [])
+        return Response({'variables': variables})
+    
+    @action(detail=False, methods=['get'])
+    def active(self, request):
+        """
+        Get active configurations for a specific type and optionally property
+        """
+        config_type = request.query_params.get('config_type')
+        property_id = request.query_params.get('property_id')
+        
+        if not config_type:
+            return Response({'error': 'config_type parameter is required'}, status=400)
+        
+        # Try to get property-specific configuration first
+        config = None
+        if property_id:
+            try:
+                property_obj = Property.objects.get(id=property_id)
+                config = Configuration.get_configuration(config_type, property_obj)
+            except Property.DoesNotExist:
+                return Response({'error': 'Property not found'}, status=404)
+        
+        # Fallback to global configuration if no property-specific one found
+        if not config:
+            config = Configuration.get_configuration(config_type)
+        
+        if not config:
+            return Response({'error': 'No active configuration found'}, status=404)
+        
+        serializer = self.get_serializer(config)
+        return Response(serializer.data)
+    
+    def get_permissions(self):
+        """
+        Only super users can manage configurations
+        """
+        if self.action in ['list', 'retrieve', 'types', 'variables', 'active', 'preview']:
+            permission_classes = [IsAuthenticated]
+        else:
+            permission_classes = [IsAuthenticated]
+        
+        return [permission() for permission in permission_classes]
+    
+    def has_permission(self, request, view):
+        """
+        Check if user has permission to perform the action
+        """
+        if request.user.is_superuser:
+            return True
+        
+        # Non-super users can only view active configurations
+        if view.action in ['list', 'retrieve', 'types', 'variables', 'active', 'preview']:
+            return True
+        
+        return False

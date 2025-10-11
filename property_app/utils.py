@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 from property_app.models import (
     Campaign, CampaignDate, CampaignDateType, CampaignBudget, CampaignComment,
-    ClientNotification, PropertyUserRole
+    ClientNotification, PropertyUserRole, Configuration
 )
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -78,31 +78,50 @@ class ExtractedBudget(BaseModel):
 class BudgetExtractionResponse(BaseModel):
     budget: ExtractedBudget
 
-def generate_meta_ad_content(messaging, primary_goal, target_audience, campaign_name):
+def generate_meta_ad_content(messaging, primary_goal, target_audience, campaign_name, property=None):
     """Generate all Meta ad content using a single API call."""
-    prompt = f"""
-    Generate comprehensive Meta ad content based on the following information:
+    # Get the configuration for Meta ad copywriter
+    config = Configuration.get_configuration(Configuration.ConfigType.META_AD_COPYWRITER, property)
+    
+    if not config:
+        # Fallback to hardcoded prompt if no configuration is found
+        system_prompt = "You are an expert Meta ad copywriter. Generate comprehensive ad content that drives engagement and conversions."
+        user_prompt = f"""
+        Generate comprehensive Meta ad content based on the following information:
 
-    Messaging: {messaging}
-    Primary Goal: {primary_goal}
-    Target Audience: {target_audience}
-    Campaign Name: {campaign_name}
+        Messaging: {messaging}
+        Primary Goal: {primary_goal}
+        Target Audience: {target_audience}
+        Campaign Name: {campaign_name}
 
-    Please provide:
-    1. 5 different compelling headline (max 50 characters, single line)
-    2. Five different main copy variations (each max 200 characters, 2-3 lines)
-    3. Desktop display copy (max 325 characters)
-    4. An appropriate call-to-action
+        Please provide:
+        1. 5 different compelling headline (max 50 characters, single line)
+        2. Five different main copy variations (each max 200 characters, 2-3 lines)
+        3. Desktop display copy (max 325 characters)
+        4. An appropriate call-to-action
 
-    IMPORTANT: Each text option should utilize as much of the character limit as possible while remaining engaging and on-brand. All content should be optimized for Meta's advertising platform.
-    """
+        IMPORTANT: Each text option should utilize as much of the character limit as possible while remaining engaging and on-brand. All content should be optimized for Meta's advertising platform.
+        """
+    else:
+        # Use configuration prompts with variable substitution
+        variables = {
+            'messaging': messaging,
+            'primary_goal': primary_goal,
+            'target_audience': target_audience,
+            'campaign_name': campaign_name,
+            'property_name': property.name if property else '',
+            'brand_tone': '',  # Could be added to campaign data in the future
+        }
+        
+        system_prompt = config.get_resolved_prompt(**variables)
+        user_prompt = config.get_resolved_user_prompt(**variables)
 
     try:
         response = client.responses.parse(
             model=MODEL,
             input=[
-                {"role": "system", "content": "You are an expert Meta ad copywriter. Generate comprehensive ad content that drives engagement and conversions."},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
             ],
             text_format=MetaAdResponse,
         )
@@ -111,33 +130,52 @@ def generate_meta_ad_content(messaging, primary_goal, target_audience, campaign_
         # Return None if generation fails
         return None
 
-def generate_google_display_content(messaging, primary_goal, target_audience, campaign_name):
+def generate_google_display_content(messaging, primary_goal, target_audience, campaign_name, property=None):
     """Generate all Google Display ad content using a single API call."""
-    prompt = f"""
-    Generate comprehensive Google Display ad content based on the following information:
+    # Get the configuration for Google Ads copywriter
+    config = Configuration.get_configuration(Configuration.ConfigType.GOOGLE_ADS_COPYWRITER, property)
+    
+    if not config:
+        # Fallback to hardcoded prompt if no configuration is found
+        system_prompt = "You are an expert Google Ads copywriter. Generate comprehensive ad content optimized for Google Display campaigns."
+        user_prompt = f"""
+        Generate comprehensive Google Display ad content based on the following information:
 
-    Messaging: {messaging}
-    Primary Goal: {primary_goal}
-    Target Audience: {target_audience}
-    Campaign Name: {campaign_name}
+        Messaging: {messaging}
+        Primary Goal: {primary_goal}
+        Target Audience: {target_audience}
+        Campaign Name: {campaign_name}
 
-    Please provide:
-    1. Five different headlines (each exactly 30 characters)
-    2. Three long headlines (exactly 90 characters)
-    3. Five different descriptions (each exactly 90 characters)
+        Please provide:
+        1. Five different headlines (each exactly 30 characters)
+        2. Three long headlines (exactly 90 characters)
+        3. Five different descriptions (each exactly 90 characters)
 
-    CRITICAL REQUIREMENTS:
-    - Each text option should utilize the full character limit as much as possible
-    - NO exclamation marks are allowed in any Google content
-    - All content should be optimized for Google Display campaigns and drive the specified goal
-    """
+        CRITICAL REQUIREMENTS:
+        - Each text option should utilize the full character limit as much as possible
+        - NO exclamation marks are allowed in any Google content
+        - All content should be optimized for Google Display campaigns and drive the specified goal
+        """
+    else:
+        # Use configuration prompts with variable substitution
+        variables = {
+            'messaging': messaging,
+            'primary_goal': primary_goal,
+            'target_audience': target_audience,
+            'campaign_name': campaign_name,
+            'property_name': property.name if property else '',
+            'brand_tone': '',  # Could be added to campaign data in the future
+        }
+        
+        system_prompt = config.get_resolved_prompt(**variables)
+        user_prompt = config.get_resolved_user_prompt(**variables)
 
     try:
         response = client.responses.parse(
             model=MODEL,
             input=[
-                {"role": "system", "content": "You are an expert Google Ads copywriter. Generate comprehensive ad content optimized for Google Display campaigns."},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
             ],
             text_format=GoogleDisplayResponse,
         )
@@ -297,7 +335,7 @@ def map_pmcb_to_campaign_fields(campaign, pmcb_data):
     creative_context = pmcb_data.get('creativeContext', '')
 
     # Generate Meta content with single API call
-    meta_content = generate_meta_ad_content(messaging, primary_goal, target_audience, campaign_name)
+    meta_content = generate_meta_ad_content(messaging, primary_goal, target_audience, campaign_name, campaign.property)
     if meta_content:
         campaign.meta_headline = meta_content.headline
         campaign.meta_main_copy_options = meta_content.main_copy_options
@@ -305,7 +343,7 @@ def map_pmcb_to_campaign_fields(campaign, pmcb_data):
         campaign.meta_call_to_action = meta_content.call_to_action
 
     # Generate Google Display content with single API call
-    google_content = generate_google_display_content(messaging, primary_goal, target_audience, campaign_name)
+    google_content = generate_google_display_content(messaging, primary_goal, target_audience, campaign_name, campaign.property)
     if google_content:
         campaign.google_headlines = google_content.headlines
         campaign.google_long_headline = google_content.long_headline

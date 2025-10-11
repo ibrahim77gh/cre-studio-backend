@@ -372,6 +372,154 @@ class CampaignCommentAttachment(models.Model):
         super().save(*args, **kwargs)
 
 
+class Configuration(models.Model):
+    """
+    System configuration settings including AI prompts.
+    Supports both global and property-specific configurations.
+    """
+    class ConfigType(models.TextChoices):
+        META_AD_COPYWRITER = "meta_ad_copywriter", "Meta Ad Copywriter"
+        GOOGLE_ADS_COPYWRITER = "google_ads_copywriter", "Google Ads Copywriter"
+        CUSTOM = "custom", "Custom"
+    
+    config_type = models.CharField(
+        max_length=30,
+        choices=ConfigType.choices,
+        help_text="Type of configuration/prompt"
+    )
+    name = models.CharField(
+        max_length=255,
+        help_text="Human-readable name for this configuration"
+    )
+    description = models.TextField(
+        blank=True,
+        help_text="Description of what this configuration is used for"
+    )
+    system_prompt = models.TextField(
+        help_text="The system prompt template. Use {variable_name} for variable substitution."
+    )
+    user_prompt_template = models.TextField(
+        blank=True,
+        help_text="The user prompt template. Use {variable_name} for variable substitution."
+    )
+    available_variables = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of available variables for substitution in the format [{'name': 'variable_name', 'description': 'What this variable represents'}]"
+    )
+    
+    # Scope: global or property-specific
+    property = models.ForeignKey(
+        Property,
+        on_delete=models.CASCADE,
+        related_name='configurations',
+        null=True,
+        blank=True,
+        help_text="If set, this configuration is specific to this property. If null, it's a global configuration."
+    )
+    
+    # Metadata
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this configuration is currently active"
+    )
+    is_default = models.BooleanField(
+        default=False,
+        help_text="Whether this is the default configuration for this type"
+    )
+    
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_configurations'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Configuration"
+        verbose_name_plural = "Configurations"
+        constraints = [
+            models.UniqueConstraint(
+                fields=['config_type', 'property', 'is_default'],
+                condition=models.Q(is_default=True),
+                name='unique_default_per_type_property'
+            )
+        ]
+        ordering = ['config_type', 'property__name', 'name']
+
+    def __str__(self):
+        scope = f" - {self.property.name}" if self.property else " (Global)"
+        return f"{self.get_config_type_display()}: {self.name}{scope}"
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        
+        # Validate that only one default exists per config_type and property combination
+        if self.is_default:
+            existing_default = Configuration.objects.filter(
+                config_type=self.config_type,
+                property=self.property,
+                is_default=True
+            ).exclude(pk=self.pk)
+            
+            if existing_default.exists():
+                scope = f" for property {self.property.name}" if self.property else " globally"
+                raise ValidationError(f"A default configuration already exists for {self.get_config_type_display()}{scope}")
+
+    def get_resolved_prompt(self, **variables):
+        """
+        Resolve the system prompt with provided variables.
+        Returns the prompt with variables substituted.
+        """
+        try:
+            return self.system_prompt.format(**variables)
+        except KeyError as e:
+            # If a required variable is missing, return the original prompt
+            # This allows for graceful degradation
+            return self.system_prompt
+
+    def get_resolved_user_prompt(self, **variables):
+        """
+        Resolve the user prompt template with provided variables.
+        Returns the prompt with variables substituted.
+        """
+        if not self.user_prompt_template:
+            return ""
+        
+        try:
+            return self.user_prompt_template.format(**variables)
+        except KeyError as e:
+            # If a required variable is missing, return the original template
+            return self.user_prompt_template
+
+    @classmethod
+    def get_configuration(cls, config_type, property=None):
+        """
+        Get the appropriate configuration for a given type and property.
+        Returns property-specific config if available, otherwise returns global default.
+        """
+        # First try to get property-specific configuration
+        if property:
+            config = cls.objects.filter(
+                config_type=config_type,
+                property=property,
+                is_active=True
+            ).order_by('-is_default', '-created_at').first()
+            
+            if config:
+                return config
+        
+        # Fallback to global default
+        return cls.objects.filter(
+            config_type=config_type,
+            property__isnull=True,
+            is_active=True
+        ).order_by('-is_default', '-created_at').first()
+
+
 class ClientNotification(models.Model):
     """
     Notifications for the client dashboard.
