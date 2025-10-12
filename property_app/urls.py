@@ -1,4 +1,4 @@
-from property_app.views import CampaignSubmissionViewSet, PropertyViewSet, PropertyGroupViewSet, ClientNotificationViewSet, CreativeAssetViewSet, CampaignCommentViewSet, CampaignCommentAttachmentViewSet
+from property_app.views import CampaignSubmissionViewSet, PropertyViewSet, PropertyGroupViewSet, ClientNotificationViewSet, CreativeAssetViewSet, CampaignCommentViewSet, CampaignCommentAttachmentViewSet, PlatformViewSet
 from rest_framework.routers import DefaultRouter
 
 router = DefaultRouter()
@@ -9,5 +9,6 @@ router.register(r'notifications', ClientNotificationViewSet, basename='notificat
 router.register(r'assets', CreativeAssetViewSet, basename='asset')
 router.register(r'comments', CampaignCommentViewSet, basename='comment')
 router.register(r'comment-attachments', CampaignCommentAttachmentViewSet, basename='comment-attachment')
+router.register(r'platforms', PlatformViewSet, basename='platform')
 
 urlpatterns = router.urls

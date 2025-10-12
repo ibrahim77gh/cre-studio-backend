@@ -2,7 +2,7 @@ from django.contrib import admin
 from .models import (
     PropertyGroup, Property, UserPropertyMembership, 
     Campaign, CampaignDate, CampaignBudget, CreativeAsset, 
-    ClientNotification
+    ClientNotification, Platform, PlatformBudget
 )
 
 # Inline admin for related models
@@ -17,9 +17,16 @@ class CreativeAssetInline(admin.TabularInline):
     fields = ['file', 'asset_type', 'platform_type']
     readonly_fields = ['uploaded_at']
 
+class PlatformBudgetInline(admin.TabularInline):
+    model = PlatformBudget
+    extra = 1
+    fields = ['platform', 'gross_amount', 'net_amount']
+    readonly_fields = ['net_amount']
+
 class CampaignBudgetInline(admin.StackedInline):
     model = CampaignBudget
     extra = 0
+    inlines = [PlatformBudgetInline]
 
 # Enhanced Campaign admin
 @admin.register(Campaign)
@@ -57,6 +64,21 @@ class CampaignDateAdmin(admin.ModelAdmin):
     list_filter = ['date_type', 'is_all_day', 'date']
     search_fields = ['title', 'campaign__property__name', 'description']
     ordering = ['date', 'start_time']
+
+# Platform admin
+@admin.register(Platform)
+class PlatformAdmin(admin.ModelAdmin):
+    list_display = ['display_name', 'name', 'net_rate', 'is_active']
+    list_filter = ['is_active']
+    search_fields = ['name', 'display_name']
+    ordering = ['name']
+
+@admin.register(PlatformBudget)
+class PlatformBudgetAdmin(admin.ModelAdmin):
+    list_display = ['campaign_budget', 'platform', 'gross_amount', 'net_amount']
+    list_filter = ['platform', 'created_at']
+    search_fields = ['campaign_budget__campaign__center', 'platform__display_name']
+    readonly_fields = ['net_amount']
 
 # Register other models
 admin.site.register(PropertyGroup)

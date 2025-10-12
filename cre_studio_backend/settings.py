@@ -32,7 +32,7 @@ DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
 # Production ALLOWED_HOSTS
 if DEBUG:
-    ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+    ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'testserver']
 else:
     ALLOWED_HOSTS = [
         'localhost',

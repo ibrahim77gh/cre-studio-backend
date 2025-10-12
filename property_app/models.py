@@ -241,6 +241,87 @@ class CampaignDate(models.Model):
         return self.date == timezone.now().date()
 
 
+class Platform(models.Model):
+    """
+    Represents advertising platforms (Meta, Google Display, YouTube, OTT, etc.)
+    """
+    name = models.CharField(max_length=100, unique=True)
+    display_name = models.CharField(max_length=100, help_text="Human-readable name for the platform")
+    net_rate = models.DecimalField(
+        max_digits=5, 
+        decimal_places=4, 
+        default=0.8500,
+        help_text="Rate to calculate net from gross (e.g., 0.8500 for 85% net rate)"
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+        verbose_name = "Platform"
+        verbose_name_plural = "Platforms"
+
+    def __str__(self):
+        return self.display_name
+
+    @property
+    def deduction_rate(self):
+        """Calculate the deduction rate (1 - net_rate)"""
+        return 1 - self.net_rate
+
+
+class PlatformBudget(models.Model):
+    """
+    Stores budget information for each platform within a campaign
+    """
+    campaign_budget = models.ForeignKey(
+        'CampaignBudget',
+        on_delete=models.CASCADE,
+        related_name='platform_budgets'
+    )
+    platform = models.ForeignKey(
+        Platform,
+        on_delete=models.CASCADE,
+        related_name='budgets'
+    )
+    gross_amount = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=0.00, 
+        null=True, 
+        blank=True,
+        help_text="Gross budget amount entered by Super User"
+    )
+    net_amount = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=0.00, 
+        null=True, 
+        blank=True,
+        help_text="Net amount calculated from gross (read-only field)"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ['campaign_budget', 'platform']
+        verbose_name = "Platform Budget"
+        verbose_name_plural = "Platform Budgets"
+
+    def __str__(self):
+        return f"{self.platform.display_name} Budget - {self.campaign_budget.campaign.center or self.campaign_budget.campaign.id}"
+
+    def save(self, *args, **kwargs):
+        """Auto-calculate net_amount when gross_amount is saved"""
+        if self.gross_amount is not None and self.gross_amount > 0:
+            self.net_amount = self.gross_amount * self.platform.net_rate
+        else:
+            self.net_amount = 0.00
+        super().save(*args, **kwargs)
+
+
 class CampaignBudget(models.Model):
     campaign = models.OneToOneField(
         Campaign,
@@ -250,10 +331,6 @@ class CampaignBudget(models.Model):
     creative_charges_deductions = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, null=True, blank=True)
     total_gross = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, null=True, blank=True)
     total_net = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, null=True, blank=True)
-    meta_gross = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, null=True, blank=True)
-    meta_net = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, null=True, blank=True)
-    display_gross = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, null=True, blank=True)
-    display_net = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -261,14 +338,54 @@ class CampaignBudget(models.Model):
     def __str__(self):
         return f"Budget for {self.campaign.center or self.campaign.id}"
 
+    def save(self, *args, **kwargs):
+        """Auto-calculate total_net when saving"""
+        # Calculate total_net from all platform budgets minus creative charges
+        total_net = sum(
+            platform_budget.net_amount or 0 
+            for platform_budget in self.platform_budgets.all()
+        ) - (self.creative_charges_deductions or 0)
+        self.total_net = total_net
+
+        super().save(*args, **kwargs)
+
+    def get_platform_budget(self, platform_name):
+        """Get budget for a specific platform"""
+        try:
+            return self.platform_budgets.get(platform__name=platform_name)
+        except PlatformBudget.DoesNotExist:
+            return None
+
+    def get_or_create_platform_budget(self, platform_name):
+        """Get or create budget for a specific platform"""
+        platform, created = Platform.objects.get_or_create(
+            name=platform_name,
+            defaults={'display_name': platform_name.title()}
+        )
+        platform_budget, created = PlatformBudget.objects.get_or_create(
+            campaign_budget=self,
+            platform=platform
+        )
+        return platform_budget
+
     # Calculated fields (for reports)
     @property
     def gross_with_deductions(self):
-        return self.total_gross - self.creative_charges_deductions
+        return self.total_gross - (self.creative_charges_deductions or 0)
 
     @property
     def net_with_deductions(self):
-        return self.total_net - self.creative_charges_deductions
+        return self.total_net - (self.creative_charges_deductions or 0)
+
+    @property
+    def meta_budget(self):
+        """Get Meta platform budget (for backward compatibility)"""
+        return self.get_platform_budget('meta')
+
+    @property
+    def display_budget(self):
+        """Get Google Display platform budget (for backward compatibility)"""
+        return self.get_platform_budget('google_display')
 
 
 class CreativeAsset(models.Model):

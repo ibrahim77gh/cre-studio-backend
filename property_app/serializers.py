@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import (
-    CampaignBudget, CreativeAsset, Property, PropertyGroup, Campaign,
+    CampaignBudget, CreativeAsset, Property, PropertyGroup, Campaign, Platform, PlatformBudget,
     ClientNotification, CampaignDate, CampaignComment, CampaignCommentAttachment
 )
 import json
@@ -137,17 +137,108 @@ class CampaignDateSerializer(serializers.ModelSerializer):
 
 
 
-class CampaignBudgetSerializer(serializers.ModelSerializer):
+class PlatformSerializer(serializers.ModelSerializer):
     class Meta:
-        model = CampaignBudget
-        fields = "__all__"
-        read_only_fields = ["id", "campaign"]
+        model = Platform
+        fields = ["id", "name", "display_name", "net_rate", "is_active"]
+        read_only_fields = ["id"]
+
+
+class PlatformBudgetSerializer(serializers.ModelSerializer):
+    platform = PlatformSerializer(read_only=True)
+    platform_id = serializers.IntegerField(write_only=True)
+    
+    class Meta:
+        model = PlatformBudget
+        fields = ["id", "platform", "platform_id", "gross_amount", "net_amount"]
+        read_only_fields = ["id", "net_amount"]
 
     def validate(self, data):
         for field, value in data.items():
             if value == "":
                 data[field] = None
         return data
+
+
+class CampaignBudgetSerializer(serializers.ModelSerializer):
+    platform_budgets = PlatformBudgetSerializer(many=True, required=False)
+    
+    # Backward compatibility properties
+    meta_gross = serializers.SerializerMethodField(read_only=True)
+    meta_net = serializers.SerializerMethodField(read_only=True)
+    display_gross = serializers.SerializerMethodField(read_only=True)
+    display_net = serializers.SerializerMethodField(read_only=True)
+    
+    class Meta:
+        model = CampaignBudget
+        fields = [
+            "id", "campaign", "creative_charges_deductions", "total_gross", "total_net",
+            "platform_budgets",
+            "meta_gross", "meta_net", "display_gross", "display_net"
+        ]
+        read_only_fields = ["id", "campaign", "total_net"]
+
+    def get_meta_gross(self, obj):
+        """Get Meta platform gross amount for backward compatibility"""
+        meta_budget = obj.get_platform_budget('meta')
+        return meta_budget.gross_amount if meta_budget else None
+
+    def get_meta_net(self, obj):
+        """Get Meta platform net amount for backward compatibility"""
+        meta_budget = obj.get_platform_budget('meta')
+        return meta_budget.net_amount if meta_budget else None
+
+    def get_display_gross(self, obj):
+        """Get Google Display platform gross amount for backward compatibility"""
+        display_budget = obj.get_platform_budget('google_display')
+        return display_budget.gross_amount if display_budget else None
+
+    def get_display_net(self, obj):
+        """Get Google Display platform net amount for backward compatibility"""
+        display_budget = obj.get_platform_budget('google_display')
+        return display_budget.net_amount if display_budget else None
+
+    def validate(self, data):
+        for field, value in data.items():
+            if value == "":
+                data[field] = None
+        return data
+
+    def update(self, instance, validated_data):
+        platform_budgets_data = validated_data.pop('platform_budgets', [])
+        
+        # Update main budget fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        
+        # Handle platform budgets - if platform_budgets is provided, replace all existing ones
+        if 'platform_budgets' in self.initial_data:
+            # Get list of platform IDs from the request
+            requested_platform_ids = set()
+            
+            # Update/create platform budgets from request
+            for platform_budget_data in platform_budgets_data:
+                platform_id = platform_budget_data.pop('platform_id')
+                requested_platform_ids.add(platform_id)
+                platform = Platform.objects.get(id=platform_id)
+                
+                platform_budget, created = PlatformBudget.objects.get_or_create(
+                    campaign_budget=instance,
+                    platform=platform
+                )
+                
+                for attr, value in platform_budget_data.items():
+                    setattr(platform_budget, attr, value)
+                platform_budget.save()
+            
+            # Remove platform budgets that are not in the request
+            existing_platform_budgets = PlatformBudget.objects.filter(campaign_budget=instance)
+            for existing_budget in existing_platform_budgets:
+                if existing_budget.platform.id not in requested_platform_ids:
+                    existing_budget.delete()
+        
+        instance.save()
+        return instance
 
 
 class CampaignSubmissionSerializer(serializers.ModelSerializer):

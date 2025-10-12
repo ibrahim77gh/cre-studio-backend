@@ -6,11 +6,9 @@ from typing import List, Optional
 from dotenv import load_dotenv
 
 from property_app.models import (
-    Campaign, CampaignDate, CampaignDateType, CampaignBudget, CampaignComment,
+    Campaign, CampaignComment,
     ClientNotification, PropertyUserRole
 )
-from datetime import datetime
-from decimal import Decimal, InvalidOperation
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.conf import settings
@@ -27,22 +25,6 @@ client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 # Use GPT-5-nano for better structured output
 MODEL = "gpt-5-nano"
 
-def extract_urls(text):
-    """Extract URLs from text using regex. Handles both strings and lists."""
-    url_pattern = r'https?://[^\s]+'
-    
-    # Handle different input types
-    if isinstance(text, list):
-        # If it's a list, join all items and then extract URLs
-        text = ' '.join(str(item) for item in text)
-    elif text is None:
-        return []
-    elif not isinstance(text, str):
-        # Convert to string if it's not already
-        text = str(text)
-    
-    return re.findall(url_pattern, text)
-
 # Pydantic models for structured outputs
 class MetaAdResponse(BaseModel):
     headline: List[str]  # 5 headlines, each max 50 characters
@@ -55,28 +37,6 @@ class GoogleDisplayResponse(BaseModel):
     long_headline: List[str]  # 3 long headlines, each under 90 characters
     descriptions: List[str]  # 5 descriptions, each under 90 characters
 
-class ExtractedDate(BaseModel):
-    date: str  # YYYY-MM-DD format
-    title: str
-    description: Optional[str] = None
-    date_type: str  # 'event', 'milestone', 'deadline', 'promotion'
-
-class DateExtractionResponse(BaseModel):
-    campaign_start_date: Optional[str] = None  # YYYY-MM-DD format
-    campaign_end_date: Optional[str] = None    # YYYY-MM-DD format
-    event_dates: List[ExtractedDate] = []
-
-class ExtractedBudget(BaseModel):
-    total_gross: Optional[float] = None
-    total_net: Optional[float] = None
-    meta_gross: Optional[float] = None
-    meta_net: Optional[float] = None
-    display_gross: Optional[float] = None
-    display_net: Optional[float] = None
-    creative_charges_deductions: Optional[float] = None
-
-class BudgetExtractionResponse(BaseModel):
-    budget: ExtractedBudget
 
 def generate_meta_ad_content(messaging, primary_goal, target_audience, campaign_name):
     """Generate all Meta ad content using a single API call."""
@@ -146,123 +106,6 @@ def generate_google_display_content(messaging, primary_goal, target_audience, ca
         # Return None if generation fails
         return None
 
-def extract_budget_with_ai(budget_text, pmcb_data):
-    """
-    Use AI to extract budget information from budget text.
-    Only extracts explicitly mentioned budget amounts.
-    """
-    prompt = f"""
-    Extract budget information from the following text. Only extract explicitly mentioned budget amounts.
-    
-    Budget Information: {budget_text}
-    
-    Look for:
-    - Total gross budget amounts
-    - Total net budget amounts
-    - Meta/Facebook advertising budget (gross and net)
-    - Google Display advertising budget (gross and net)
-    - Creative charges or deductions
-    
-    If no budget information is found, return null values for all budget fields.
-    """
-
-    try:
-        response = client.responses.parse(
-            model=MODEL,
-            input=[
-                {"role": "system", "content": "You are an expert at extracting budget information from marketing campaign text. Extract ONLY explicitly mentioned budget amounts. Never estimate or generate numbers."},
-                {"role": "user", "content": prompt}
-            ],
-            text_format=BudgetExtractionResponse,
-        )
-        return response.output_parsed
-    except Exception as e:
-        # Fallback - return empty response
-        return BudgetExtractionResponse(
-            budget=ExtractedBudget()
-        )
-
-def parse_budget_from_pmcb(campaign, pmcb_data):
-    """
-    Parse budget information from pmcb_form_data and create/update CampaignBudget instance.
-    Uses AI to extract budget amounts from budget text and other relevant data.
-    """
-    if not pmcb_data:
-        return
-    
-    # Extract budget information
-    budget_text = pmcb_data.get('budget', '')
-    
-    if budget_text:
-        # Use AI to extract budget information
-        extracted_budget_data = extract_budget_with_ai(budget_text, pmcb_data)
-        
-        if extracted_budget_data.budget:
-            # Get or create campaign budget
-            campaign_budget, created = CampaignBudget.objects.get_or_create(
-                campaign=campaign,
-                defaults={
-                    'total_gross': 0.00,
-                    'total_net': 0.00,
-                    'meta_gross': 0.00,
-                    'meta_net': 0.00,
-                    'display_gross': 0.00,
-                    'display_net': 0.00,
-                    'creative_charges_deductions': 0.00,
-                }
-            )
-            
-            # Update budget fields only if values were extracted
-            budget = extracted_budget_data.budget
-            
-            def safe_decimal_conversion(value):
-                """Safely convert a value to Decimal, return None if conversion fails"""
-                if value is None:
-                    return None
-                try:
-                    return Decimal(str(value))
-                except (InvalidOperation, ValueError, TypeError):
-                    return None
-            
-            # Update only the fields that have extracted values
-            if budget.total_gross is not None:
-                decimal_value = safe_decimal_conversion(budget.total_gross)
-                if decimal_value is not None:
-                    campaign_budget.total_gross = decimal_value
-            
-            if budget.total_net is not None:
-                decimal_value = safe_decimal_conversion(budget.total_net)
-                if decimal_value is not None:
-                    campaign_budget.total_net = decimal_value
-            
-            if budget.meta_gross is not None:
-                decimal_value = safe_decimal_conversion(budget.meta_gross)
-                if decimal_value is not None:
-                    campaign_budget.meta_gross = decimal_value
-            
-            if budget.meta_net is not None:
-                decimal_value = safe_decimal_conversion(budget.meta_net)
-                if decimal_value is not None:
-                    campaign_budget.meta_net = decimal_value
-            
-            if budget.display_gross is not None:
-                decimal_value = safe_decimal_conversion(budget.display_gross)
-                if decimal_value is not None:
-                    campaign_budget.display_gross = decimal_value
-            
-            if budget.display_net is not None:
-                decimal_value = safe_decimal_conversion(budget.display_net)
-                if decimal_value is not None:
-                    campaign_budget.display_net = decimal_value
-            
-            if budget.creative_charges_deductions is not None:
-                decimal_value = safe_decimal_conversion(budget.creative_charges_deductions)
-                if decimal_value is not None:
-                    campaign_budget.creative_charges_deductions = decimal_value
-            
-            # Save the budget
-            campaign_budget.save()
-
 
 def map_pmcb_to_campaign_fields(campaign, pmcb_data):
     """
@@ -272,25 +115,8 @@ def map_pmcb_to_campaign_fields(campaign, pmcb_data):
     if not pmcb_data:
         return
 
-    # Direct mappings
-    campaign_name = pmcb_data.get('keyEvent', '')
-    campaign.center = campaign_name
-
-    # Parse and create campaign budget
-    parse_budget_from_pmcb(campaign, pmcb_data)
-
-    # Website URLs
-    relevant_links = pmcb_data.get('relevantLinks', '')
-    urls = extract_urls(relevant_links)
-    if urls:
-        campaign.meta_website_url = urls[0]
-        campaign.google_website_url = urls[0]
-
-    # Notes
-    campaign.meta_notes = pmcb_data.get('additionalNotes', '')
-    campaign.google_notes = pmcb_data.get('additionalNotes', '')
-
     # Extract AI generation parameters
+    campaign_name = pmcb_data.get('keyEvent', '')
     messaging = pmcb_data.get('messaging', '')
     primary_goal = pmcb_data.get('primaryGoal', 'awareness')
     target_audience = pmcb_data.get('targetAudience', '')
@@ -310,11 +136,6 @@ def map_pmcb_to_campaign_fields(campaign, pmcb_data):
         campaign.google_headlines = google_content.headlines
         campaign.google_long_headline = google_content.long_headline
         campaign.google_descriptions = google_content.descriptions
-
-    # Ready status
-    status = pmcb_data.get('status', '')
-    campaign.meta_ready = "AI Generated" if status == 'submitted' else ""
-    campaign.google_ready = "AI Generated" if status == 'submitted' else ""
 
     # Save the campaign
     campaign.save()

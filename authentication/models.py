@@ -49,7 +49,14 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     objects = UserManager()
 
     def __str__(self):
-        return self.first_name + " " + self.last_name
+        if self.first_name and self.last_name:
+            return f"{self.first_name} {self.last_name}"
+        elif self.first_name:
+            return self.first_name
+        elif self.last_name:
+            return self.last_name
+        else:
+            return self.email
 
     def get_absolute_url(self):
         return "/users/%i/" % (self.pk)

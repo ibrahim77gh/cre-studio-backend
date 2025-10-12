@@ -6,21 +6,26 @@ from property_app.serializers import (
     CreativeAssetSerializer,
     CampaignCommentSerializer,
     CampaignCommentAttachmentSerializer,
-    CampaignStatsSerializer
+    CampaignStatsSerializer,
+    CampaignBudgetSerializer,
+    PlatformSerializer,
+    PlatformBudgetSerializer
 )
 from .models import (
     Campaign, Property, PropertyGroup, UserPropertyMembership,
     PropertyUserRole, ClientNotification, CreativeAsset, CampaignComment,
-    CampaignCommentAttachment
+    CampaignCommentAttachment, CampaignBudget, Platform, PlatformBudget
 )
 from rest_framework import viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
+from rest_framework import status
 from .utils import send_comment_notifications
+from .tasks import process_campaign_ai_content
 
 
 class PropertyViewSet(viewsets.ModelViewSet):
@@ -82,7 +87,7 @@ class CampaignSubmissionViewSet(viewsets.ModelViewSet):
     Only allows authenticated Client Users to submit data.
     """
     serializer_class = CampaignSubmissionSerializer
-    parser_classes = (MultiPartParser, FormParser)
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
     permission_classes = [IsAuthenticated]
     pagination_class = PageNumberPagination
 
@@ -91,8 +96,8 @@ class CampaignSubmissionViewSet(viewsets.ModelViewSet):
         Return campaigns filtered by property_id for list views.
         For detail views (when pk is provided), return all campaigns to allow lookup by ID.
         """
-        # For detail views (retrieve, update, delete), allow access to any campaign
-        if self.action in ['retrieve', 'update', 'partial_update', 'destroy']:
+        # For detail views (retrieve, update, delete) and custom detail actions, allow access to any campaign
+        if self.action in ['retrieve', 'update', 'partial_update', 'destroy', 'budget_detail', 'add_platform_budget', 'update_platform_budget', 'process_ai_content']:
             return Campaign.objects.all()
         
         # For list views, require property_id filter
@@ -149,6 +154,185 @@ class CampaignSubmissionViewSet(viewsets.ModelViewSet):
         
         serializer = CampaignStatsSerializer(stats_data)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def process_ai_content(self, request, pk=None):
+        """
+        Trigger AI content processing for a specific campaign.
+        Usage: POST /api/campaigns/{id}/process_ai_content/
+        """
+        campaign = self.get_object()
+        
+        # Check if campaign has pmcb_form_data to process
+        if not campaign.pmcb_form_data:
+            return Response(
+                {'error': 'Campaign does not have PMCB form data to process'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if AI processing is already in progress
+        if campaign.ai_processing_status == Campaign.AIProcessingStatus.PROCESSING:
+            return Response(
+                {'error': 'AI processing is already in progress for this campaign'}, 
+                status=status.HTTP_409_CONFLICT
+            )
+        
+        # Allow reprocessing even if already completed (user may have updated PMCB form data)
+        # Reset processing status to pending when starting new processing
+        if campaign.ai_processing_status == Campaign.AIProcessingStatus.COMPLETED:
+            # Reset the status to allow reprocessing
+            campaign.ai_processing_status = Campaign.AIProcessingStatus.PENDING
+            campaign.ai_processing_error = None
+            campaign.save(update_fields=['ai_processing_status', 'ai_processing_error'])
+        
+        try:
+            # Trigger the Celery task for AI processing
+            task = process_campaign_ai_content.delay(campaign.id)
+            
+            return Response(
+                {
+                    'message': 'AI content processing started successfully',
+                    'campaign_id': campaign.id,
+                    'task_id': task.id,
+                    'status': 'processing_started'
+                }, 
+                status=status.HTTP_202_ACCEPTED
+            )
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to start AI processing: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def _has_campaign_access(self, user, campaign):
+        """Check if user has access to the campaign"""
+        if user.is_superuser:
+            return True
+        
+        # Check if user is the campaign creator
+        if campaign.user == user:
+            return True
+        
+        # Check property membership
+        try:
+            membership = UserPropertyMembership.objects.get(
+                user=user,
+                property=campaign.property
+            )
+            return True
+        except UserPropertyMembership.DoesNotExist:
+            pass
+        
+        # Check group membership
+        try:
+            membership = UserPropertyMembership.objects.get(
+                user=user,
+                property_group=campaign.property.property_group
+            )
+            return True
+        except UserPropertyMembership.DoesNotExist:
+            pass
+        
+        return False
+
+    @action(detail=True, methods=['get', 'patch'], url_path='budget', url_name='campaign-budget')
+    def budget_detail(self, request, pk=None):
+        """
+        Get or update campaign budget
+        GET /api/campaigns/{id}/budget/
+        PATCH /api/campaigns/{id}/budget/
+        """
+        campaign = self.get_object()
+        
+        # Check permissions
+        if not self._has_campaign_access(request.user, campaign):
+            raise PermissionDenied("You don't have access to this campaign's budget.")
+        
+        budget, created = CampaignBudget.objects.get_or_create(campaign=campaign)
+        
+        if request.method == 'GET':
+            serializer = CampaignBudgetSerializer(budget)
+            return Response(serializer.data)
+        
+        elif request.method == 'PATCH':
+            serializer = CampaignBudgetSerializer(budget, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'], url_path='budget/platforms/')
+    def add_platform_budget(self, request, pk=None):
+        """
+        Add a platform budget to campaign
+        POST /api/campaigns/{id}/budget/platforms/
+        """
+        campaign = self.get_object()
+        
+        # Check permissions
+        if not self._has_campaign_access(request.user, campaign):
+            raise PermissionDenied("You don't have access to this campaign's budget.")
+        
+        budget, created = CampaignBudget.objects.get_or_create(campaign=campaign)
+        platform_id = request.data.get('platform_id')
+        gross_amount = request.data.get('gross_amount', 0)
+        
+        if not platform_id:
+            return Response(
+                {'error': 'platform_id is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            platform = Platform.objects.get(id=platform_id)
+        except Platform.DoesNotExist:
+            return Response(
+                {'error': 'Platform not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        platform_budget, created = PlatformBudget.objects.get_or_create(
+            campaign_budget=budget,
+            platform=platform
+        )
+        platform_budget.gross_amount = gross_amount
+        platform_budget.save()
+        
+        serializer = PlatformBudgetSerializer(platform_budget)
+        return Response(serializer.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+    @action(detail=True, methods=['patch'], url_path='budget/platform/(?P<platform_id>[^/.]+)/')
+    def update_platform_budget(self, request, pk=None, platform_id=None):
+        """
+        Update specific platform budget
+        PATCH /api/campaigns/{id}/budget/platform/{platform_id}/
+        """
+        campaign = self.get_object()
+        
+        # Check permissions
+        if not self._has_campaign_access(request.user, campaign):
+            raise PermissionDenied("You don't have access to this campaign's budget.")
+        
+        budget, created = CampaignBudget.objects.get_or_create(campaign=campaign)
+        
+        try:
+            platform = Platform.objects.get(id=platform_id)
+            platform_budget = PlatformBudget.objects.get(
+                campaign_budget=budget,
+                platform=platform
+            )
+        except (Platform.DoesNotExist, PlatformBudget.DoesNotExist):
+            return Response(
+                {'error': 'Platform budget not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        serializer = PlatformBudgetSerializer(platform_budget, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class PropertyGroupViewSet(viewsets.ModelViewSet):
@@ -452,3 +636,18 @@ class CampaignCommentAttachmentViewSet(viewsets.ModelViewSet):
             'comment_id': comment_id,
             'attachments': serializer.data
         })
+
+
+class PlatformViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for managing advertising platforms.
+    Read-only for regular users, superusers can manage platforms via admin.
+    """
+    queryset = Platform.objects.filter(is_active=True)
+    serializer_class = PlatformSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = None
+    
+    def get_queryset(self):
+        """Return only active platforms"""
+        return Platform.objects.filter(is_active=True).order_by('name')

@@ -111,3 +111,6 @@ celery -A cre_studio_backend events
 # Purge all pending tasks
 celery -A cre_studio_backend purge
 ```
+
+## Process Campaign 
+/api/campaigns/{id}/process_ai_content/
