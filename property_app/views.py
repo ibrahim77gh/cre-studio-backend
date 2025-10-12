@@ -95,6 +95,7 @@ class CampaignSubmissionViewSet(viewsets.ModelViewSet):
         """
         Return campaigns filtered by property_id for list views.
         For detail views (when pk is provided), return all campaigns to allow lookup by ID.
+        Supports filtering by approval_status and ordering by created_at (descending).
         """
         # For detail views (retrieve, update, delete) and custom detail actions, allow access to any campaign
         if self.action in ['retrieve', 'update', 'partial_update', 'destroy', 'budget_detail', 'add_platform_budget', 'update_platform_budget', 'process_ai_content']:
@@ -106,6 +107,15 @@ class CampaignSubmissionViewSet(viewsets.ModelViewSet):
             return Campaign.objects.none()
         
         queryset = Campaign.objects.filter(property_id=property_id)
+        
+        # Filter by approval_status if provided
+        approval_status = self.request.query_params.get("approval_status")
+        if approval_status:
+            queryset = queryset.filter(approval_status=approval_status)
+        
+        # Order by created_at descending (newest first)
+        queryset = queryset.order_by('-created_at')
+        
         return queryset
 
     @action(detail=False, methods=['get'])

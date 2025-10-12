@@ -320,6 +320,16 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
         creative_assets = validated_data.pop('creative_assets', [])
         campaign_dates_data = validated_data.pop('campaign_dates', [])
         pmcb_data = validated_data.pop('pmcb_form_data', {})
+        request = self.context.get("request")
+
+        # Extract raw budget JSON from request.data if present
+        raw_budget = request.data.get("budget") if request else None
+        budget_data = None
+        if raw_budget:
+            try:
+                budget_data = json.loads(raw_budget)
+            except Exception:
+                budget_data = None
 
         # Store pmcb_form_data JSON in campaign
         validated_data['pmcb_form_data'] = pmcb_data
@@ -334,6 +344,14 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
         # Handle campaign dates
         for date_data in campaign_dates_data:
             CampaignDate.objects.create(campaign=campaign, **date_data)
+
+        # Handle budget
+        if budget_data is not None:
+            budget = CampaignBudget.objects.create(campaign=campaign)
+            for attr, value in budget_data.items():
+                if hasattr(budget, attr):
+                    setattr(budget, attr, value)
+            budget.save()
 
         return campaign
 
