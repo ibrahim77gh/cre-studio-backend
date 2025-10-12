@@ -186,12 +186,12 @@ def send_comment_notifications(comment):
     # Determine notification type and content
     if comment.is_reply:
         notification_type = ClientNotification.NotificationType.COMMENT_REPLY
-        title = f"New Reply on Campaign {campaign.pk}"
-        message = f"{comment_author.email} replied to a comment on campaign {campaign.center or campaign.pk}"
+        title = f"New Reply on Campaign {campaign.center}"
+        message = f"{comment_author.email} replied to a comment on campaign {campaign.center}"
     else:
         notification_type = ClientNotification.NotificationType.COMMENT
-        title = f"New Comment on Campaign {campaign.pk}"
-        message = f"{comment_author.email} commented on campaign {campaign.center or campaign.pk}"
+        title = f"New Comment on Campaign {campaign.center}"
+        message = f"{comment_author.email} commented on campaign {campaign.center}"
     
     # Create notifications for each user
     notifications_to_create = []
@@ -241,10 +241,10 @@ def send_comment_email_notifications(comment_id, notification_user_ids):
         
         # Determine email template and subject
         if comment.is_reply:
-            subject = f"New Reply on Campaign {campaign.center or campaign.pk}"
+            subject = f"New Reply on Campaign {campaign.center}"
             template_name = 'email/comment_reply_notification.html'
         else:
-            subject = f"New Comment on Campaign {campaign.center or campaign.pk}"
+            subject = f"New Comment on Campaign {campaign.center}"
             template_name = 'email/comment_notification.html'
         
         # Send emails to each user
@@ -283,8 +283,8 @@ def send_campaign_update_notification(campaign, update_type, updated_by):
     notification_users = get_campaign_notification_users(campaign)
     notification_users = [user for user in notification_users if user != updated_by]
     
-    title = f"Campaign {campaign.pk} Updated"
-    message = f"Campaign {campaign.center or campaign.pk} has been updated by {updated_by.email}"
+    title = f"Campaign {campaign.center} Updated"
+    message = f"Campaign {campaign.center} has been updated by {updated_by.email}"
     
     notifications_to_create = []
     for user in notification_users:
@@ -322,7 +322,7 @@ def send_campaign_update_email_notifications(campaign_id, updated_by_id, update_
             'site_name': getattr(settings, 'SITE_NAME', 'CRE Studio'),
         }
         
-        subject = f"Campaign {campaign.center or campaign.pk} Updated"
+        subject = f"Campaign {campaign.center} Updated"
         template_name = 'email/campaign_update_notification.html'
         
         # Send emails to each user

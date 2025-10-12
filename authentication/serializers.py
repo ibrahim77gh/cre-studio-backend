@@ -45,19 +45,28 @@ class UserSerializer(BaseUserSerializer):
         if membership.role == PropertyUserRole.TENANT:
             return {
                 "role": "tenant",
-                "property": membership.property.id if membership.property else None,
+                "property": {
+                    "id": membership.property.id,
+                    "name": membership.property.name
+                } if membership.property else None,
             }
 
         if membership.role == PropertyUserRole.PROPERTY_ADMIN:
             return {
                 "role": "property_admin",
-                "property": membership.property.id if membership.property else None,
+                "property": {
+                    "id": membership.property.id,
+                    "name": membership.property.name
+                } if membership.property else None,
             }
 
         if membership.role == PropertyUserRole.GROUP_ADMIN:
             return {
                 "role": "group_admin",
-                "group": membership.property_group.id if membership.property_group else None,
+                "property_group": {
+                    "id": membership.property_group.id,
+                    "name": membership.property_group.name
+                } if membership.property_group else None,
             }
 
         return {"role": membership.role}
@@ -96,7 +105,7 @@ class UserManagementCreateSerializer(serializers.ModelSerializer):
         # Validate password strength
         try:
             validate_password(attrs['password'])
-        except DjangoValidationError as e:
+        except ValidationError as e:
             raise serializers.ValidationError({"password": e.messages})
         
         # Role and membership validation
@@ -254,7 +263,7 @@ class UserManagementUpdateSerializer(serializers.ModelSerializer):
         if 'password' in attrs:
             try:
                 validate_password(attrs['password'])
-            except DjangoValidationError as e:
+            except ValidationError as e:
                 raise serializers.ValidationError({"password": e.messages})
         
         # Role validation if provided
