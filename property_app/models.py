@@ -340,12 +340,17 @@ class CampaignBudget(models.Model):
 
     def save(self, *args, **kwargs):
         """Auto-calculate total_net when saving"""
-        # Calculate total_net from all platform budgets minus creative charges
-        total_net = sum(
-            platform_budget.net_amount or 0 
-            for platform_budget in self.platform_budgets.all()
-        ) - (self.creative_charges_deductions or 0)
-        self.total_net = total_net
+        # Only calculate total_net if the instance already exists (has a primary key)
+        if self.pk:
+            # Calculate total_net from all platform budgets minus creative charges
+            total_net = sum(
+                platform_budget.net_amount or 0 
+                for platform_budget in self.platform_budgets.all()
+            ) - (self.creative_charges_deductions or 0)
+            self.total_net = total_net
+        else:
+            # For new instances, set total_net based only on creative charges
+            self.total_net = -(self.creative_charges_deductions or 0)
 
         super().save(*args, **kwargs)
 
