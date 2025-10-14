@@ -2,7 +2,7 @@ from django.contrib import admin
 from .models import (
     PropertyGroup, Property, UserPropertyMembership, 
     Campaign, CampaignDate, CampaignBudget, CreativeAsset, 
-    ClientNotification, Platform, PlatformBudget
+    ClientNotification, Platform, PlatformBudget, PromptConfiguration
 )
 
 # Inline admin for related models
@@ -79,6 +79,32 @@ class PlatformBudgetAdmin(admin.ModelAdmin):
     list_filter = ['platform', 'created_at']
     search_fields = ['campaign_budget__campaign__center', 'platform__display_name']
     readonly_fields = ['net_amount']
+
+@admin.register(PromptConfiguration)
+class PromptConfigurationAdmin(admin.ModelAdmin):
+    list_display = ['__str__', 'prompt_type', 'property', 'is_active', 'updated_by', 'updated_at']
+    list_filter = ['prompt_type', 'is_active', 'property']
+    search_fields = ['property__name', 'system_message', 'user_prompt_template']
+    readonly_fields = ['created_by', 'created_at', 'updated_by', 'updated_at']
+    fieldsets = (
+        ('Configuration', {
+            'fields': ('prompt_type', 'property', 'is_active')
+        }),
+        ('Prompt Content', {
+            'fields': ('system_message', 'user_prompt_template', 'available_variables')
+        }),
+        ('Metadata', {
+            'fields': ('created_by', 'created_at', 'updated_by', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    def save_model(self, request, obj, form, change):
+        """Auto-set created_by and updated_by"""
+        if not change:
+            obj.created_by = request.user
+        obj.updated_by = request.user
+        super().save_model(request, obj, form, change)
 
 # Register other models
 admin.site.register(PropertyGroup)
