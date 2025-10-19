@@ -162,3 +162,50 @@ def send_campaign_update_email_notifications_task(self, campaign_id, updated_by_
             'error': str(exc),
             'retries': self.request.retries
         }
+
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=30)
+def send_approval_status_email_notifications_task(self, campaign_id, notification_user_ids, old_status, new_status, updated_by_id):
+    """
+    Celery task wrapper for sending approval status change email notifications.
+    
+    Args:
+        campaign_id (int): The ID of the campaign
+        notification_user_ids (list): List of user IDs to notify
+        old_status (str): The previous approval status
+        new_status (str): The new approval status
+        updated_by_id (int): The ID of the user who updated the campaign
+        
+    Returns:
+        dict: Task result with status and details
+    """
+    try:
+        from .utils import send_approval_status_email_notifications
+        send_approval_status_email_notifications(campaign_id, notification_user_ids, old_status, new_status, updated_by_id)
+        
+        logger.info(f"Successfully sent approval status email notifications for campaign {campaign_id}")
+        
+        return {
+            'status': 'completed',
+            'campaign_id': campaign_id,
+            'old_status': old_status,
+            'new_status': new_status,
+            'updated_by_id': updated_by_id,
+            'notified_users': len(notification_user_ids),
+            'message': 'Approval status email notifications sent successfully'
+        }
+        
+    except Exception as exc:
+        logger.error(f"Error sending approval status email notifications for campaign {campaign_id}: {str(exc)}")
+        
+        # Retry the task if we haven't exceeded max retries
+        if self.request.retries < self.max_retries:
+            logger.info(f"Retrying approval status email task for campaign {campaign_id}, attempt {self.request.retries + 1}")
+            raise self.retry(exc=exc)
+        
+        return {
+            'status': 'failed',
+            'campaign_id': campaign_id,
+            'error': str(exc),
+            'retries': self.request.retries
+        }

@@ -370,6 +370,11 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
             except Exception:
                 budget_data = None
 
+        # Check for approval status change before updating
+        old_approval_status = instance.approval_status
+        new_approval_status = validated_data.get('approval_status', old_approval_status)
+        approval_status_changed = old_approval_status != new_approval_status
+
         # Update campaign fields
         campaign = super().update(instance, validated_data)
 
@@ -395,6 +400,12 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
                     setattr(budget, attr, value)
 
             budget.save()
+
+        # Send approval status change notification if status changed
+        if approval_status_changed and request and request.user:
+            from .utils import send_approval_status_notification
+            send_approval_status_notification(campaign, old_approval_status, new_approval_status, request.user)
+
         return campaign
 
 
