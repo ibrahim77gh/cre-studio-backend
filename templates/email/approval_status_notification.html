@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{{ subject }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .content {
+            background-color: #ffffff;
+            padding: 20px;
+            border: 1px solid #e9ecef;
+            border-radius: 5px;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-weight: bold;
+            text-transform: uppercase;
+            font-size: 12px;
+        }
+        .status-pending { background-color: #ffc107; color: #000; }
+        .status-admin-approved { background-color: #17a2b8; color: #fff; }
+        .status-client-approved { background-color: #28a745; color: #fff; }
+        .status-fully-approved { background-color: #007bff; color: #fff; }
+        .campaign-info {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+        .footer {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e9ecef;
+            font-size: 12px;
+            color: #6c757d;
+        }
+        .button {
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>{{ site_name }} - Campaign Approval Update</h2>
+    </div>
+    
+    <div class="content">
+        <h3>Hello {{ recipient.first_name|default:recipient.email }},</h3>
+        
+        <p>We wanted to inform you that campaign <strong>{{ campaign.center }}</strong> {{ status_message }}.</p>
+        
+        <div class="campaign-info">
+            <h4>Campaign Details:</h4>
+            <p><strong>Campaign:</strong> {{ campaign.center }}</p>
+            <p><strong>Property:</strong> {{ campaign.property.name }}</p>
+            <p><strong>Previous Status:</strong> 
+                <span class="status-badge status-{{ old_status }}">{{ old_status|title }}</span>
+            </p>
+            <p><strong>New Status:</strong> 
+                <span class="status-badge status-{{ new_status }}">{{ new_status|title }}</span>
+            </p>
+            {% if updated_by %}
+            <p><strong>Updated by:</strong> {{ updated_by.email }}</p>
+            {% endif %}
+        </div>
+        
+        {% if new_status == 'fully_approved' %}
+        <p><strong>🎉 Congratulations!</strong> Your campaign is now fully approved and ready for launch. You can proceed with your marketing activities.</p>
+        {% elif new_status == 'admin_approved' %}
+        <p>Your campaign has been reviewed and approved by our admin team. It's now ready for client approval.</p>
+        {% elif new_status == 'client_approved' %}
+        <p>Great news! The client has approved your campaign. It's now ready for final approval.</p>
+        {% endif %}
+        
+        <p>You can view the full campaign details and track its progress in your dashboard.</p>
+        
+        <a href="#" class="button">View Campaign</a>
+    </div>
+    
+    <div class="footer">
+        <p>This is an automated notification from {{ site_name }}. Please do not reply to this email.</p>
+        <p>If you have any questions, please contact our support team.</p>
+    </div>
+</body>
+</html>

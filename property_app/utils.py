@@ -148,6 +148,7 @@ def get_campaign_notification_users(campaign):
     - The campaign creator (tenant)
     - Property admins for the campaign's property
     - Group admins for the campaign's property group
+    - Superusers
     """
     User = get_user_model()
     notification_users = set()
@@ -168,6 +169,10 @@ def get_campaign_notification_users(campaign):
         property_memberships__role=PropertyUserRole.GROUP_ADMIN
     )
     notification_users.update(group_admins)
+    
+    # Add superusers
+    superusers = User.objects.filter(is_superuser=True)
+    notification_users.update(superusers)
     
     return list(notification_users)
 
@@ -300,6 +305,80 @@ def send_campaign_update_notification(campaign, update_type, updated_by):
     ClientNotification.objects.bulk_create(notifications_to_create)
 
 
+def send_approval_status_notification(campaign, old_status, new_status, updated_by):
+    """
+    Send notifications when a campaign's approval status changes.
+    """
+    notification_users = get_campaign_notification_users(campaign)
+    notification_users = [user for user in notification_users if user != updated_by]
+    
+    # Determine notification type and message based on status change
+    if new_status == Campaign.ApprovalStatus.ADMIN_APPROVED and old_status == Campaign.ApprovalStatus.PENDING:
+        # PENDING to ADMIN_APPROVED - notify tenant users
+        notification_type = ClientNotification.NotificationType.ADMIN_APPROVED
+        title = f"Campaign {campaign.center} Admin Approved"
+        message = f"Campaign {campaign.center} has been approved by admin {updated_by.email}"
+        
+        # Filter to only tenant users for this notification
+        tenant_users = [user for user in notification_users if not user.is_superuser and 
+                      not user.property_memberships.filter(
+                          property=campaign.property,
+                          role__in=[PropertyUserRole.PROPERTY_ADMIN, PropertyUserRole.GROUP_ADMIN]
+                      ).exists()]
+        notification_users = tenant_users
+        
+    elif new_status == Campaign.ApprovalStatus.CLIENT_APPROVED and old_status == Campaign.ApprovalStatus.ADMIN_APPROVED:
+        # ADMIN_APPROVED to CLIENT_APPROVED - notify admin and superuser
+        notification_type = ClientNotification.NotificationType.CLIENT_APPROVED
+        title = f"Campaign {campaign.center} Client Approved"
+        message = f"Campaign {campaign.center} has been approved by client {updated_by.email}"
+        
+        # Filter to only admin and superuser users
+        admin_users = [user for user in notification_users if user.is_superuser or 
+                      user.property_memberships.filter(
+                          property=campaign.property,
+                          role__in=[PropertyUserRole.PROPERTY_ADMIN, PropertyUserRole.GROUP_ADMIN]
+                      ).exists()]
+        notification_users = admin_users
+        
+    elif new_status == Campaign.ApprovalStatus.FULLY_APPROVED:
+        # FULLY_APPROVED - notify all relevant users
+        notification_type = ClientNotification.NotificationType.FULLY_APPROVED
+        title = f"Campaign {campaign.center} Fully Approved"
+        message = f"Campaign {campaign.center} has been fully approved and is ready for launch"
+        
+    else:
+        # Other status changes - use general approval notification
+        notification_type = ClientNotification.NotificationType.APPROVAL
+        title = f"Campaign {campaign.center} Status Changed"
+        message = f"Campaign {campaign.center} status changed from {old_status} to {new_status} by {updated_by.email}"
+    
+    # Create notifications
+    notifications_to_create = []
+    for user in notification_users:
+        notification = ClientNotification(
+            user=user,
+            campaign=campaign,
+            notification_type=notification_type,
+            title=title,
+            message=message
+        )
+        notifications_to_create.append(notification)
+    
+    if notifications_to_create:
+        ClientNotification.objects.bulk_create(notifications_to_create)
+        
+        # Send email notifications asynchronously
+        from .tasks import send_approval_status_email_notifications_task
+        send_approval_status_email_notifications_task.delay(
+            campaign.id, 
+            [user.id for user in notification_users],
+            old_status,
+            new_status,
+            updated_by.id
+        )
+
+
 @shared_task
 def send_campaign_update_email_notifications(campaign_id, updated_by_id, update_type):
     """
@@ -348,3 +427,68 @@ def send_campaign_update_email_notifications(campaign_id, updated_by_id, update_
         print(f"Campaign or User not found: {e}")
     except Exception as e:
         print(f"Error in send_campaign_update_email_notifications task: {e}")
+
+
+@shared_task
+def send_approval_status_email_notifications(campaign_id, notification_user_ids, old_status, new_status, updated_by_id):
+    """
+    Send email notifications for approval status changes as a Celery task.
+    """
+    try:
+        User = get_user_model()
+        
+        campaign = Campaign.objects.select_related('property', 'property__property_group').get(id=campaign_id)
+        updated_by = User.objects.get(id=updated_by_id)
+        notification_users = User.objects.filter(id__in=notification_user_ids)
+        
+        # Determine email template and subject based on status change
+        if new_status == Campaign.ApprovalStatus.ADMIN_APPROVED and old_status == Campaign.ApprovalStatus.PENDING:
+            subject = f"Campaign {campaign.center} Admin Approved"
+            template_name = 'email/approval_status_notification.html'
+            status_message = "has been approved by admin"
+        elif new_status == Campaign.ApprovalStatus.CLIENT_APPROVED and old_status == Campaign.ApprovalStatus.ADMIN_APPROVED:
+            subject = f"Campaign {campaign.center} Client Approved"
+            template_name = 'email/approval_status_notification.html'
+            status_message = "has been approved by client"
+        elif new_status == Campaign.ApprovalStatus.FULLY_APPROVED:
+            subject = f"Campaign {campaign.center} Fully Approved"
+            template_name = 'email/approval_status_notification.html'
+            status_message = "has been fully approved and is ready for launch"
+        else:
+            subject = f"Campaign {campaign.center} Status Changed"
+            template_name = 'email/approval_status_notification.html'
+            status_message = f"status changed from {old_status} to {new_status}"
+        
+        # Prepare email context
+        context = {
+            'campaign': campaign,
+            'updated_by': updated_by,
+            'old_status': old_status,
+            'new_status': new_status,
+            'status_message': status_message,
+            'site_name': getattr(settings, 'SITE_NAME', 'CRE Studio'),
+        }
+        
+        # Send emails to each user
+        for user in notification_users:
+            try:
+                context['recipient'] = user
+                
+                html_message = render_to_string(template_name, context)
+                plain_message = strip_tags(html_message)
+                
+                send_mail(
+                    subject=subject,
+                    message=plain_message,
+                    html_message=html_message,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user.email],
+                    fail_silently=False,
+                )
+            except Exception as e:
+                print(f"Failed to send approval status email to {user.email}: {e}")
+                
+    except (Campaign.DoesNotExist, User.DoesNotExist) as e:
+        print(f"Campaign or User not found: {e}")
+    except Exception as e:
+        print(f"Error in send_approval_status_email_notifications task: {e}")

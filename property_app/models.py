@@ -504,6 +504,9 @@ class ClientNotification(models.Model):
         COMMENT_REPLY = "comment_reply", "Comment Reply"
         CAMPAIGN_UPDATE = "campaign_update", "Campaign Update"
         APPROVAL = "approval", "Approval"
+        ADMIN_APPROVED = "admin_approved", "Admin Approved"
+        CLIENT_APPROVED = "client_approved", "Client Approved"
+        FULLY_APPROVED = "fully_approved", "Fully Approved"
     
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
