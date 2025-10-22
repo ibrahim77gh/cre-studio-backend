@@ -197,10 +197,19 @@ class UserManagementViewSet(viewsets.ModelViewSet):
     def activate(self, request, pk=None):
         """
         Activate a deactivated user.
+        Note: Users should be activated through invitation acceptance, not manually.
+        This endpoint is kept for backward compatibility but should be used sparingly.
         """
         user = self.get_object()
         
         if not user.is_active:
+            # Check if user has accepted their invitation
+            if not user.invitation_accepted:
+                return Response(
+                    {'error': 'User must accept their invitation before being activated. Please resend the invitation email.'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
             user.is_active = True
             user.save()
             return Response({'status': 'User activated'})
@@ -430,3 +439,152 @@ class UserStatsView(APIView):
         # Serialize and return
         serializer = UserStatsSerializer(stats_data)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class AcceptInvitationView(APIView):
+    """
+    API endpoint to accept user invitations.
+    Users can accept invitations using their invitation token.
+    """
+    permission_classes = [permissions.AllowAny]  # No authentication required for invitation acceptance
+    
+    def get(self, request, token):
+        """
+        Accept an invitation using the invitation token.
+        This activates the user account.
+        """
+        try:
+            # Find user with the invitation token
+            user = CustomUser.objects.get(invitation_token=token)
+            
+            # Check if invitation is still valid (not expired)
+            if user.invitation_sent_at:
+                from datetime import datetime, timedelta
+                invitation_expiry = user.invitation_sent_at + timedelta(days=7)
+                if datetime.now() > invitation_expiry:
+                    return Response(
+                        {'error': 'Invitation has expired. Please request a new invitation.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            # Check if invitation is already accepted
+            if user.invitation_accepted:
+                return Response(
+                    {'error': 'Invitation has already been accepted.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Accept the invitation
+            user.invitation_accepted = True
+            user.invitation_accepted_at = datetime.now()
+            user.is_active = True  # Activate the user
+            user.save()
+            
+            return Response({
+                'message': 'Invitation accepted successfully! Your account has been activated.',
+                'user': {
+                    'id': user.id,
+                    'email': user.email,
+                    'first_name': user.first_name,
+                    'last_name': user.last_name,
+                    'is_active': user.is_active
+                }
+            })
+            
+        except CustomUser.DoesNotExist:
+            return Response(
+                {'error': 'Invalid invitation token.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            return Response(
+                {'error': f'An error occurred: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class ResendInvitationView(APIView):
+    """
+    API endpoint to resend invitation emails.
+    Only accessible by users who can manage the target user.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request, user_id):
+        """
+        Resend invitation email to a user.
+        """
+        try:
+            # Get the target user
+            target_user = CustomUser.objects.get(id=user_id)
+            
+            # Check if current user can manage this user
+            current_user = request.user
+            manageable_users = current_user.get_managed_users()
+            
+            if target_user not in manageable_users:
+                return Response(
+                    {'error': 'You do not have permission to resend invitations for this user.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Check if user already accepted invitation
+            if target_user.invitation_accepted:
+                return Response(
+                    {'error': 'This user has already accepted their invitation.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get role information for the email
+            role_info = self._get_role_info(target_user)
+            
+            # Send the invitation email
+            from .email import InvitationEmail
+            invitation_email = InvitationEmail(target_user, role_info)
+            invitation_email.send()
+            
+            return Response({
+                'message': f'Invitation email has been resent to {target_user.email}.'
+            })
+            
+        except CustomUser.DoesNotExist:
+            return Response(
+                {'error': 'User not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {'error': f'An error occurred: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _get_role_info(self, user):
+        """Get role information for the user"""
+        if user.is_superuser:
+            return {'role_label': 'Super User'}
+        
+        memberships = user.property_memberships.all()
+        if not memberships.exists():
+            return {'role_label': 'User'}
+        
+        membership = memberships.first()
+        role_labels = {
+            PropertyUserRole.GROUP_ADMIN: 'Property Group Admin',
+            PropertyUserRole.PROPERTY_ADMIN: 'Property Admin',
+            PropertyUserRole.TENANT: 'Tenant',
+        }
+        
+        role_info = {
+            'role_label': role_labels.get(membership.role, membership.role),
+            'property_name': None,
+            'property_group_name': None,
+        }
+        
+        if membership.property:
+            role_info['property_name'] = membership.property.name
+            if membership.property.property_group:
+                role_info['property_group_name'] = membership.property.property_group.name
+        elif membership.property_group:
+            role_info['property_group_name'] = membership.property_group.name
+        
+        return role_info

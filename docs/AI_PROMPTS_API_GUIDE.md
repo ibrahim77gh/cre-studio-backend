@@ -395,8 +395,8 @@ After running `populate_default_prompts`, two default prompts are created:
 
 **Frontend needs to build:**
 1. Prompt list page (with default/custom separation)
-2. Edit prompt modal (system message + template editor)
-3. Create prompt modal (with property selector)
+2. Edit Default prompts (system message + template editor)
+3. Create/Edit property specific prompt for currently selected property.
 4. Delete confirmation
 5. Variable hints display
 6. Permission guards for Super User only
