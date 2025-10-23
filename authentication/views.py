@@ -459,9 +459,10 @@ class AcceptInvitationView(APIView):
             
             # Check if invitation is still valid (not expired)
             if user.invitation_sent_at:
-                from datetime import datetime, timedelta
+                from datetime import timedelta
+                from django.utils import timezone
                 invitation_expiry = user.invitation_sent_at + timedelta(days=7)
-                if datetime.now() > invitation_expiry:
+                if timezone.now() > invitation_expiry:
                     return Response(
                         {'error': 'Invitation has expired. Please request a new invitation.'},
                         status=status.HTTP_400_BAD_REQUEST
@@ -476,7 +477,7 @@ class AcceptInvitationView(APIView):
             
             # Accept the invitation
             user.invitation_accepted = True
-            user.invitation_accepted_at = datetime.now()
+            user.invitation_accepted_at = timezone.now()
             user.is_active = True  # Activate the user
             user.save()
             

@@ -4,14 +4,6 @@
 {% blocktrans %}You're invited to join {{ site_name }}{% endblocktrans %}
 {% endblock subject %}
 
-{% block text_body %}
-{% blocktrans %}You're receiving this email because you've been invited to join {{ site_name }}.{% endblocktrans %}
-{% trans "Please go to the following page to accept your invitation and activate your account:" %}
-{{ url|safe }}
-{% trans "Thanks for joining our team!" %}
-{% blocktrans %}The {{ site_name }} team{% endblocktrans %}
-{% endblock text_body %}
-
 {% block html_body %}
 <!DOCTYPE html>
 <html lang="en">

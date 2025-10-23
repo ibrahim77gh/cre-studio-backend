@@ -288,6 +288,7 @@ def send_comment_email_notifications(comment_id, notification_user_ids):
             'site_name': getattr(settings, 'SITE_NAME', 'Retail Studio'),
             'is_reply': comment.is_reply,
             'parent_comment': comment.parent_comment if comment.is_reply else None,
+            'site_url': getattr(settings, 'SITE_URL', 'http://localhost:3000/'),
         }
         
         # Determine email template and subject
@@ -445,6 +446,7 @@ def send_campaign_update_email_notifications(campaign_id, updated_by_id, update_
             'updated_by': updated_by,
             'update_type': update_type,
             'site_name': getattr(settings, 'SITE_NAME', 'CRE Studio'),
+            'site_url': getattr(settings, 'SITE_URL', 'http://localhost:3000/'),
         }
         
         subject = f"Campaign {campaign.center} Updated"

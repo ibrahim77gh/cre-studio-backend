@@ -3,6 +3,7 @@ from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
+from django.utils import timezone
 import secrets
 import hashlib
 from datetime import datetime, timedelta
@@ -59,11 +60,11 @@ class InvitationEmail:
         # Store the token in the user model
         self.user.invitation_token = invitation_token
         self.user.invitation_sent = True
-        self.user.invitation_sent_at = datetime.now()
+        self.user.invitation_sent_at = timezone.now()
         self.user.save()
         
         # Create the invitation URL
-        invitation_url = f"{self.site_url}api/auth/accept-invitation/{invitation_token}/"
+        invitation_url = f"{self.site_url}accept-invitation/{invitation_token}/"
         
         return {
             'user': self.user,
