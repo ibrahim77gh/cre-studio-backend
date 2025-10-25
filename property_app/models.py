@@ -504,6 +504,9 @@ class ClientNotification(models.Model):
         COMMENT_REPLY = "comment_reply", "Comment Reply"
         CAMPAIGN_UPDATE = "campaign_update", "Campaign Update"
         APPROVAL = "approval", "Approval"
+        ADMIN_APPROVED = "admin_approved", "Admin Approved"
+        CLIENT_APPROVED = "client_approved", "Client Approved"
+        FULLY_APPROVED = "fully_approved", "Fully Approved"
     
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -540,3 +543,101 @@ class ClientNotification(models.Model):
     def __str__(self):
         return f"Notification for {self.user.email} on Campaign {self.campaign.pk}"
 
+
+class PromptConfiguration(models.Model):
+    """
+    Stores AI prompt configurations for campaign content generation.
+    Supports both default prompts and property-specific custom prompts.
+    """
+    class PromptType(models.TextChoices):
+        META_AD = "meta_ad", "Meta Ad Content"
+        GOOGLE_DISPLAY = "google_display", "Google Display Content"
+    
+    prompt_type = models.CharField(
+        max_length=100,
+        choices=PromptType.choices,
+        help_text="Type of prompt (Meta or Google)"
+    )
+    property = models.ForeignKey(
+        Property,
+        on_delete=models.CASCADE,
+        related_name='prompt_configurations',
+        null=True,
+        blank=True,
+        help_text="Leave empty for default prompt, or select property for custom prompt"
+    )
+    
+    # Prompt content
+    system_message = models.TextField(
+        help_text="System message that defines the AI's role and behavior"
+    )
+    user_prompt_template = models.TextField(
+        help_text="User prompt template with variables in {curly_braces}"
+    )
+    
+    # Available variables as JSON for frontend display
+    available_variables = models.JSONField(
+        default=dict,
+        help_text="Dictionary of available variables with descriptions"
+    )
+    
+    # Metadata
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Only active prompts are used for content generation"
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='created_prompts'
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='updated_prompts'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "Prompt Configuration"
+        verbose_name_plural = "Prompt Configurations"
+        constraints = [
+            models.UniqueConstraint(
+                fields=['prompt_type', 'property'],
+                name='unique_prompt_per_property_type'
+            )
+        ]
+    
+    def __str__(self):
+        if self.property:
+            return f"{self.get_prompt_type_display()} - {self.property.name}"
+        return f"{self.get_prompt_type_display()} - Default"
+    
+    @classmethod
+    def get_prompt_for_campaign(cls, prompt_type, property):
+        """
+        Get the appropriate prompt for a campaign.
+        First tries to get property-specific prompt, then falls back to default.
+        """
+        # Try to get property-specific prompt
+        property_prompt = cls.objects.filter(
+            prompt_type=prompt_type,
+            property=property,
+            is_active=True
+        ).first()
+        
+        if property_prompt:
+            return property_prompt
+        
+        # Fall back to default prompt
+        default_prompt = cls.objects.filter(
+            prompt_type=prompt_type,
+            property__isnull=True,
+            is_active=True
+        ).first()
+        
+        return default_prompt

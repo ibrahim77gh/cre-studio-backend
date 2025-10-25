@@ -307,9 +307,61 @@ If you have existing user management code, you can:
 2. Gradually migrate to the new `/api/auth/user-management/` endpoints
 3. The new system is fully compatible with existing user and membership models
 
+## Invitation System
+
+### Overview
+
+The user management system now uses an invitation-based workflow:
+
+1. **User Creation**: When a user is created through the API, they are created as inactive (`is_active=False`)
+2. **Invitation Email**: An invitation email is automatically sent to the user's email address
+3. **Invitation Acceptance**: Users must accept their invitation by clicking the link in the email
+4. **Account Activation**: Only after accepting the invitation is the user account activated (`is_active=True`)
+
+### Invitation Email
+
+The invitation email includes:
+- Welcome message with site branding
+- User's assigned role and property/group information
+- Secure invitation link with token
+- 7-day expiration period
+
+### Invitation Acceptance
+
+Users can accept invitations by visiting:
+```
+GET /api/auth/accept-invitation/{token}/
+```
+
+This endpoint:
+- Validates the invitation token
+- Checks if the invitation has expired (7 days)
+- Activates the user account
+- Returns confirmation message
+
+### Resending Invitations
+
+Administrators can resend invitation emails:
+```
+POST /api/auth/resend-invitation/{user_id}/
+```
+
+This is useful when:
+- The original email was not received
+- The invitation has expired
+- The user requests a new invitation
+
+### Manual Activation
+
+The manual activation endpoint (`POST /api/auth/user-management/{id}/activate/`) now:
+- Checks if the user has accepted their invitation
+- Only activates users who have accepted invitations
+- Provides appropriate error messages for unaccepted invitations
+
 ## Notes
 
-- Users created through this API do not require email confirmation
-- Users can log in immediately after creation
+- Users created through this API require invitation acceptance before they can log in
+- Invitation emails are sent automatically upon user creation
+- Users have 7 days to accept their invitation before it expires
 - The system integrates with your existing Djoser authentication setup
 - All timestamps are in UTC format

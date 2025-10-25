@@ -1,10 +1,11 @@
 from rest_framework import serializers
 from .models import (
     CampaignBudget, CreativeAsset, Property, PropertyGroup, Campaign, Platform, PlatformBudget,
-    ClientNotification, CampaignDate, CampaignComment, CampaignCommentAttachment
+    ClientNotification, CampaignDate, CampaignComment, CampaignCommentAttachment, PromptConfiguration
 )
 import json
 import os
+import re
 
 class PropertyGroupSerializer(serializers.ModelSerializer):
     class Meta:
@@ -315,8 +316,6 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data):
-        print(validated_data)
-
         creative_assets = validated_data.pop('creative_assets', [])
         campaign_dates_data = validated_data.pop('campaign_dates', [])
         pmcb_data = validated_data.pop('pmcb_form_data', {})
@@ -369,6 +368,11 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
             except Exception:
                 budget_data = None
 
+        # Check for approval status change before updating
+        old_approval_status = instance.approval_status
+        new_approval_status = validated_data.get('approval_status', old_approval_status)
+        approval_status_changed = old_approval_status != new_approval_status
+
         # Update campaign fields
         campaign = super().update(instance, validated_data)
 
@@ -394,6 +398,12 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
                     setattr(budget, attr, value)
 
             budget.save()
+
+        # Send approval status change notification if status changed
+        if approval_status_changed and request and request.user:
+            from .utils import send_approval_status_notification
+            send_approval_status_notification(campaign, old_approval_status, new_approval_status, request.user)
+
         return campaign
 
 
@@ -633,3 +643,136 @@ class CampaignStatsSerializer(serializers.Serializer):
     admin_approved_count = serializers.IntegerField()
     client_approved_count = serializers.IntegerField()
     fully_approved_count = serializers.IntegerField()
+
+
+class PromptConfigurationSerializer(serializers.ModelSerializer):
+    """
+    Serializer for PromptConfiguration with validation and variable extraction.
+    """
+    property_name = serializers.SerializerMethodField(read_only=True)
+    created_by_email = serializers.SerializerMethodField(read_only=True)
+    updated_by_email = serializers.SerializerMethodField(read_only=True)
+    extracted_variables = serializers.SerializerMethodField(read_only=True)
+    
+    class Meta:
+        model = PromptConfiguration
+        fields = [
+            'id', 'prompt_type', 'property', 'property_name',
+            'system_message', 'user_prompt_template', 'available_variables',
+            'extracted_variables', 'is_active', 'created_by', 'created_by_email',
+            'updated_by', 'updated_by_email', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_by', 'updated_by', 'created_at', 'updated_at']
+    
+    def get_property_name(self, obj):
+        """Get the property name or 'Default' if no property is set"""
+        return obj.property.name if obj.property else "Default"
+    
+    def get_created_by_email(self, obj):
+        """Get the email of the user who created this prompt"""
+        return obj.created_by.email if obj.created_by else None
+    
+    def get_updated_by_email(self, obj):
+        """Get the email of the user who last updated this prompt"""
+        return obj.updated_by.email if obj.updated_by else None
+    
+    def get_extracted_variables(self, obj):
+        """Extract variables from the prompt template"""
+        pattern = r'\{([^}]+)\}'
+        variables = re.findall(pattern, obj.user_prompt_template)
+        return list(set(variables))  # Remove duplicates
+    
+    def validate(self, data):
+        """Validate prompt configuration"""
+        # Ensure only superusers can create/edit prompts
+        request = self.context.get('request')
+        if request and not request.user.is_superuser:
+            raise serializers.ValidationError(
+                "Only super users can create or modify prompt configurations."
+            )
+        
+        # Validate that property-specific prompts reference an existing property
+        property_obj = data.get('property')
+        prompt_type = data.get('prompt_type')
+        
+        # Check for duplicate prompt type + property combination
+        if self.instance:
+            # Update case - check for duplicates excluding current instance
+            existing = PromptConfiguration.objects.filter(
+                prompt_type=prompt_type,
+                property=property_obj
+            ).exclude(id=self.instance.id).first()
+        else:
+            # Create case - check for duplicates
+            existing = PromptConfiguration.objects.filter(
+                prompt_type=prompt_type,
+                property=property_obj
+            ).first()
+        
+        if existing:
+            if property_obj:
+                raise serializers.ValidationError(
+                    f"A {prompt_type} prompt already exists for property '{property_obj.name}'."
+                )
+            else:
+                raise serializers.ValidationError(
+                    f"A default {prompt_type} prompt already exists."
+                )
+        
+        # Validate that variables in prompt match available_variables
+        available_vars = data.get('available_variables', {})
+        template = data.get('user_prompt_template', '')
+        
+        # Extract variables from template
+        pattern = r'\{([^}]+)\}'
+        template_vars = set(re.findall(pattern, template))
+        
+        # Warn if variables in template are not in available_variables
+        if available_vars:
+            available_var_keys = set(available_vars.keys())
+            missing_vars = template_vars - available_var_keys
+            if missing_vars:
+                raise serializers.ValidationError({
+                    'user_prompt_template': f"Template contains variables not defined in available_variables: {', '.join(missing_vars)}"
+                })
+        
+        return data
+    
+    def create(self, validated_data):
+        """Create a new prompt configuration"""
+        request = self.context.get('request')
+        if request:
+            validated_data['created_by'] = request.user
+            validated_data['updated_by'] = request.user
+        return super().create(validated_data)
+    
+    def update(self, instance, validated_data):
+        """Update an existing prompt configuration"""
+        request = self.context.get('request')
+        if request:
+            validated_data['updated_by'] = request.user
+        return super().update(instance, validated_data)
+
+
+class PromptConfigurationListSerializer(serializers.ModelSerializer):
+    """
+    Simplified serializer for listing prompt configurations.
+    """
+    property_name = serializers.SerializerMethodField(read_only=True)
+    updated_by_email = serializers.SerializerMethodField(read_only=True)
+    
+    class Meta:
+        model = PromptConfiguration
+        fields = [
+            'id', 'prompt_type', 'property', 'property_name',
+            'is_active', 'updated_by_email', 'updated_at'
+        ]
+        read_only_fields = ['id', 'updated_at']
+    
+    def get_property_name(self, obj):
+        """Get the property name or 'Default' if no property is set"""
+        return obj.property.name if obj.property else "Default"
+    
+    def get_updated_by_email(self, obj):
+        """Get the email of the user who last updated this prompt"""
+        return obj.updated_by.email if obj.updated_by else None

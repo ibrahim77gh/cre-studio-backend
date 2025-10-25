@@ -9,12 +9,14 @@ from property_app.serializers import (
     CampaignStatsSerializer,
     CampaignBudgetSerializer,
     PlatformSerializer,
-    PlatformBudgetSerializer
+    PlatformBudgetSerializer,
+    PromptConfigurationSerializer,
+    PromptConfigurationListSerializer
 )
 from .models import (
     Campaign, Property, PropertyGroup, UserPropertyMembership,
     PropertyUserRole, ClientNotification, CreativeAsset, CampaignComment,
-    CampaignCommentAttachment, CampaignBudget, Platform, PlatformBudget
+    CampaignCommentAttachment, CampaignBudget, Platform, PlatformBudget, PromptConfiguration
 )
 from rest_framework import viewsets
 from rest_framework.exceptions import PermissionDenied
@@ -360,10 +362,10 @@ class PropertyGroupViewSet(viewsets.ModelViewSet):
 class ClientNotificationViewSet(viewsets.ModelViewSet):
     serializer_class = ClientNotificationSerializer
     permission_classes = [IsAuthenticated]
-    pagination_class = None
+    # pagination_class = None
 
     def get_queryset(self):
-        notifications = ClientNotification.objects.filter(user=self.request.user)
+        notifications = ClientNotification.objects.filter(user=self.request.user).order_by('-created_at')
         return notifications
 
     def perform_create(self, serializer):
@@ -661,3 +663,129 @@ class PlatformViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         """Return only active platforms"""
         return Platform.objects.filter(is_active=True).order_by('name')
+
+
+class PromptConfigurationViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing AI prompt configurations.
+    Only superusers can create, update, or delete prompts.
+    """
+    queryset = PromptConfiguration.objects.all()
+    serializer_class = PromptConfigurationSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = None
+    
+    def get_queryset(self):
+        """
+        Return prompt configurations.
+        Superusers can see all prompts.
+        Regular users can only view prompts (but not edit/delete).
+        """
+        queryset = PromptConfiguration.objects.all().select_related('property', 'created_by', 'updated_by')
+        
+        # Filter by property_id if provided
+        property_id = self.request.query_params.get('property_id')
+        if property_id:
+            queryset = queryset.filter(property_id=property_id)
+        
+        # Filter by prompt_type if provided
+        prompt_type = self.request.query_params.get('prompt_type')
+        if prompt_type:
+            queryset = queryset.filter(prompt_type=prompt_type)
+        
+        # Filter by is_active if provided
+        is_active = self.request.query_params.get('is_active')
+        if is_active is not None:
+            is_active_bool = is_active.lower() in ['true', '1', 'yes']
+            queryset = queryset.filter(is_active=is_active_bool)
+        
+        return queryset.order_by('-created_at')
+    
+    def get_serializer_class(self):
+        """Use list serializer for list action, detail serializer for others"""
+        if self.action == 'list':
+            return PromptConfigurationListSerializer
+        return PromptConfigurationSerializer
+    
+    def perform_create(self, serializer):
+        """Only superusers can create prompts"""
+        if not self.request.user.is_superuser:
+            raise PermissionDenied("Only super users can create prompt configurations.")
+        serializer.save()
+    
+    def perform_update(self, serializer):
+        """Only superusers can update prompts"""
+        if not self.request.user.is_superuser:
+            raise PermissionDenied("Only super users can update prompt configurations.")
+        serializer.save()
+    
+    def perform_destroy(self, instance):
+        """Only superusers can delete prompts"""
+        if not self.request.user.is_superuser:
+            raise PermissionDenied("Only super users can delete prompt configurations.")
+        instance.delete()
+    
+    @action(detail=False, methods=['get'])
+    def available_variables(self, request):
+        """
+        Get available variables for prompt templates.
+        This helps the frontend display available variables to users.
+        """
+        variables = {
+            'meta_ad': {
+                'messaging': 'Campaign messaging and key points',
+                'primary_goal': 'Primary goal of the campaign (e.g., awareness, conversions)',
+                'target_audience': 'Target audience description',
+                'campaign_name': 'Name of the campaign or key event'
+            },
+            'google_display': {
+                'messaging': 'Campaign messaging and key points',
+                'primary_goal': 'Primary goal of the campaign (e.g., awareness, conversions)',
+                'target_audience': 'Target audience description',
+                'campaign_name': 'Name of the campaign or key event'
+            }
+        }
+        
+        prompt_type = request.query_params.get('prompt_type')
+        if prompt_type and prompt_type in variables:
+            return Response({
+                'prompt_type': prompt_type,
+                'variables': variables[prompt_type]
+            })
+        
+        return Response(variables)
+    
+    @action(detail=False, methods=['get'])
+    def for_property(self, request):
+        """
+        Get the appropriate prompt configuration for a specific property and prompt type.
+        Returns property-specific prompt if available, otherwise returns default prompt.
+        """
+        property_id = request.query_params.get('property_id')
+        prompt_type = request.query_params.get('prompt_type')
+        
+        if not property_id or not prompt_type:
+            return Response(
+                {'error': 'Both property_id and prompt_type parameters are required'},
+                status=400
+            )
+        
+        try:
+            property_obj = Property.objects.get(id=property_id)
+        except Property.DoesNotExist:
+            return Response(
+                {'error': 'Property not found'},
+                status=404
+            )
+        
+        # Get appropriate prompt using the model method
+        prompt = PromptConfiguration.get_prompt_for_campaign(prompt_type, property_obj)
+        
+        if not prompt:
+            return Response(
+                {'error': f'No prompt configuration found for type {prompt_type}'},
+                status=404
+            )
+        
+        serializer = PromptConfigurationSerializer(prompt, context={'request': request})
+        return Response(serializer.data)

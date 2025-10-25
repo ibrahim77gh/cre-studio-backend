@@ -207,7 +207,51 @@ class UserManagementCreateSerializer(serializers.ModelSerializer):
 
             UserPropertyMembership.objects.create(**membership_data)
 
+        # Send invitation email
+        self._send_invitation_email(user, role, property_id, property_group_id)
+
         return user
+    
+    def _send_invitation_email(self, user, role, property_id, property_group_id):
+        """Send invitation email to the newly created user"""
+        from .email import InvitationEmail
+        
+        # Prepare role information for the email
+        role_info = {
+            'role_label': self._get_role_label(role),
+            'property_name': None,
+            'property_group_name': None,
+        }
+        
+        # Get property/group names for the email
+        if property_id:
+            try:
+                property_obj = Property.objects.get(id=property_id)
+                role_info['property_name'] = property_obj.name
+                if property_obj.property_group:
+                    role_info['property_group_name'] = property_obj.property_group.name
+            except Property.DoesNotExist:
+                pass
+        elif property_group_id:
+            try:
+                property_group_obj = PropertyGroup.objects.get(id=property_group_id)
+                role_info['property_group_name'] = property_group_obj.name
+            except PropertyGroup.DoesNotExist:
+                pass
+        
+        # Send the invitation email
+        invitation_email = InvitationEmail(user, role_info)
+        invitation_email.send()
+    
+    def _get_role_label(self, role):
+        """Get human-readable role label"""
+        role_labels = {
+            'super_user': 'Super User',
+            PropertyUserRole.GROUP_ADMIN: 'Property Group Admin',
+            PropertyUserRole.PROPERTY_ADMIN: 'Property Admin',
+            PropertyUserRole.TENANT: 'Tenant',
+        }
+        return role_labels.get(role, role)
     
     def get_role_info(self, obj):
         """Get role information for the created user"""
