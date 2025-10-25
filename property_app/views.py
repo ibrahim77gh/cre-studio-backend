@@ -362,10 +362,10 @@ class PropertyGroupViewSet(viewsets.ModelViewSet):
 class ClientNotificationViewSet(viewsets.ModelViewSet):
     serializer_class = ClientNotificationSerializer
     permission_classes = [IsAuthenticated]
-    pagination_class = None
+    # pagination_class = None
 
     def get_queryset(self):
-        notifications = ClientNotification.objects.filter(user=self.request.user)
+        notifications = ClientNotification.objects.filter(user=self.request.user).order_by('-created_at')
         return notifications
 
     def perform_create(self, serializer):
