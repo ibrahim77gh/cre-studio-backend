@@ -316,8 +316,6 @@ class CampaignSubmissionSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data):
-        print(validated_data)
-
         creative_assets = validated_data.pop('creative_assets', [])
         campaign_dates_data = validated_data.pop('campaign_dates', [])
         pmcb_data = validated_data.pop('pmcb_form_data', {})

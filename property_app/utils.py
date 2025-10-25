@@ -16,6 +16,8 @@ from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from celery import shared_task
 
+import logging
+logger = logging.getLogger(__name__)
 
 load_dotenv()  # Load environment variables from .env file
 
@@ -263,7 +265,7 @@ def send_comment_notifications(comment):
     # Send email notifications asynchronously
     from .tasks import send_comment_email_notifications_task
     send_comment_email_notifications_task.delay(comment.id, [user.id for user in notification_users])
-    print(f"Sent email notifications for comment {comment.id} to {len(notification_users)} users")
+    logger.info(f"Sent email notifications for comment {comment.id} to {len(notification_users)} users")
 
 
 @shared_task
@@ -321,11 +323,14 @@ def send_comment_email_notifications(comment_id, notification_user_ids):
             except Exception as e:
                 # Log error but don't fail the entire task
                 print(f"Failed to send email notification to {user.email}: {e}")
+                logger.error(f"Failed to send email notification to {user.email}: {e}")
                 
     except CampaignComment.DoesNotExist:
         print(f"Comment with id {comment_id} not found")
+        logger.error(f"Comment with id {comment_id} not found")
     except Exception as e:
         print(f"Error in send_comment_email_notifications task: {e}")
+        logger.error(f"Error in send_comment_email_notifications task: {e}")
 
 
 def send_campaign_update_notification(campaign, update_type, updated_by):
@@ -470,12 +475,13 @@ def send_campaign_update_email_notifications(campaign_id, updated_by_id, update_
                 )
             except Exception as e:
                 print(f"Failed to send campaign update email to {user.email}: {e}")
-                
+                logger.error(f"Failed to send campaign update email to {user.email}: {e}")
     except (Campaign.DoesNotExist, User.DoesNotExist) as e:
         print(f"Campaign or User not found: {e}")
+        logger.error(f"Campaign or User not found: {e}")
     except Exception as e:
         print(f"Error in send_campaign_update_email_notifications task: {e}")
-
+        logger.error(f"Error in send_campaign_update_email_notifications task: {e}")
 
 @shared_task
 def send_approval_status_email_notifications(campaign_id, notification_user_ids, old_status, new_status, updated_by_id):
@@ -535,8 +541,10 @@ def send_approval_status_email_notifications(campaign_id, notification_user_ids,
                 )
             except Exception as e:
                 print(f"Failed to send approval status email to {user.email}: {e}")
-                
+                logger.error(f"Failed to send approval status email to {user.email}: {e}")
     except (Campaign.DoesNotExist, User.DoesNotExist) as e:
         print(f"Campaign or User not found: {e}")
+        logger.error(f"Campaign or User not found: {e}")
     except Exception as e:
         print(f"Error in send_approval_status_email_notifications task: {e}")
+        logger.error(f"Error in send_approval_status_email_notifications task: {e}")
