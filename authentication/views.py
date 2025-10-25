@@ -199,16 +199,22 @@ class UserManagementViewSet(viewsets.ModelViewSet):
         Activate a deactivated user.
         Note: Users should be activated through invitation acceptance, not manually.
         This endpoint is kept for backward compatibility but should be used sparingly.
+        Superusers can manually activate accounts even if invitation wasn't accepted.
         """
         user = self.get_object()
         
         if not user.is_active:
             # Check if user has accepted their invitation
             if not user.invitation_accepted:
-                return Response(
-                    {'error': 'User must accept their invitation before being activated. Please resend the invitation email.'}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+                # Allow superusers to manually activate accounts
+                if not request.user.is_superuser:
+                    return Response(
+                        {'error': 'User must accept their invitation before being activated. Please resend the invitation email.'}, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                else:
+                    # Superuser is manually activating - also mark invitation as accepted
+                    user.invitation_accepted = True
             
             user.is_active = True
             user.save()
