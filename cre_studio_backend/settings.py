@@ -166,11 +166,13 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 # EMAIL
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'devsdevs005@gmail.com')
+EMAIL_HOST = os.environ.get('EMAIL_HOST')
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD')
-EMAIL_PORT = 587
-DEFAULT_FROM_EMAIL = os.environ.get('EMAIL_HOST_USER', 'devsdevs005@gmail.com')
+EMAIL_PORT = os.environ.get('EMAIL_PORT')
+EMAIL_REPLY_TO = os.environ.get('EMAIL_REPLY_TO')
+EMAIL_USE_SSL = False
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL')
 EMAIL_USE_TLS = True
 
 # Default primary key field type

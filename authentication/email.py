@@ -83,13 +83,15 @@ class InvitationEmail:
         
         # Create the email
         subject = f"You're invited to join {self.site_name}"
-        from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@example.com')
+        from_email = getattr(settings, 'DEFAULT_FROM_EMAIL')
+        reply_to = [getattr(settings, 'EMAIL_REPLY_TO')]
         
         msg = EmailMultiAlternatives(
             subject=subject,
             body=text_content,
             from_email=from_email,
-            to=[self.user.email]
+            to=[self.user.email],
+            reply_to=reply_to
         )
         msg.attach_alternative(html_content, "text/html")
         

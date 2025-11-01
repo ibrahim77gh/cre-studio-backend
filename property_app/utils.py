@@ -318,6 +318,7 @@ def send_comment_email_notifications(comment_id, notification_user_ids):
                     html_message=html_message,
                     from_email=settings.DEFAULT_FROM_EMAIL,
                     recipient_list=[user.email],
+                    reply_to=[getattr(settings, 'EMAIL_REPLY_TO')],
                     fail_silently=False,
                 )
             except Exception as e:
@@ -471,6 +472,7 @@ def send_campaign_update_email_notifications(campaign_id, updated_by_id, update_
                     html_message=html_message,
                     from_email=settings.DEFAULT_FROM_EMAIL,
                     recipient_list=[user.email],
+                    reply_to=[getattr(settings, 'EMAIL_REPLY_TO')],
                     fail_silently=False,
                 )
             except Exception as e:
@@ -537,6 +539,7 @@ def send_approval_status_email_notifications(campaign_id, notification_user_ids,
                     html_message=html_message,
                     from_email=settings.DEFAULT_FROM_EMAIL,
                     recipient_list=[user.email],
+                    reply_to=[getattr(settings, 'EMAIL_REPLY_TO')],
                     fail_silently=False,
                 )
             except Exception as e:
