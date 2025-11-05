@@ -125,7 +125,7 @@ class Campaign(models.Model):
     meta_main_copy_options = models.JSONField(null=True, blank=True) # Stores a list of texts
     meta_headline = models.JSONField(blank=True, null=True) # Using TextField to avoid limits
     meta_desktop_display_copy = models.TextField(blank=True, null=True)
-    meta_website_url = models.URLField(max_length=500, blank=True, null=True)
+    meta_website_url = models.TextField(max_length=500, blank=True, null=True)
     meta_call_to_action = models.CharField(max_length=255, blank=True, null=True)
     meta_notes = models.TextField(blank=True, null=True)
     meta_ready = models.TextField(blank=True, null=True)
@@ -134,7 +134,7 @@ class Campaign(models.Model):
     google_headlines = models.JSONField(null=True, blank=True) # Using JSONField to store multiple headlines as a list
     google_long_headline = models.JSONField(blank=True, null=True) # Using JSONField to store multiple headlines as a list
     google_descriptions = models.JSONField(null=True, blank=True) # Using JSONField to store multiple descriptions as a list
-    google_website_url = models.URLField(max_length=500, blank=True, null=True)
+    google_website_url = models.TextField(blank=True, null=True)
     google_notes = models.TextField(blank=True, null=True)
     google_ready = models.TextField(blank=True, null=True)
 
