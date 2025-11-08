@@ -10,7 +10,7 @@ from property_app.models import (
     ClientNotification, PropertyUserRole
 )
 from django.contrib.auth import get_user_model
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives
 from django.conf import settings
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
@@ -312,15 +312,20 @@ def send_comment_email_notifications(comment_id, notification_user_ids):
                 plain_message = strip_tags(html_message)
                 
                 # Send email
-                send_mail(
+                email_kwargs = {}
+                reply_to = getattr(settings, 'EMAIL_REPLY_TO', None)
+                if reply_to:
+                    email_kwargs['reply_to'] = [reply_to]
+
+                email = EmailMultiAlternatives(
                     subject=subject,
-                    message=plain_message,
-                    html_message=html_message,
+                    body=plain_message,
                     from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[user.email],
-                    reply_to=[getattr(settings, 'EMAIL_REPLY_TO')],
-                    fail_silently=False,
+                    to=[user.email],
+                    **email_kwargs,
                 )
+                email.attach_alternative(html_message, "text/html")
+                email.send(fail_silently=False)
             except Exception as e:
                 # Log error but don't fail the entire task
                 print(f"Failed to send email notification to {user.email}: {e}")
@@ -466,15 +471,20 @@ def send_campaign_update_email_notifications(campaign_id, updated_by_id, update_
                 html_message = render_to_string(template_name, context)
                 plain_message = strip_tags(html_message)
                 
-                send_mail(
+                email_kwargs = {}
+                reply_to = getattr(settings, 'EMAIL_REPLY_TO', None)
+                if reply_to:
+                    email_kwargs['reply_to'] = [reply_to]
+
+                email = EmailMultiAlternatives(
                     subject=subject,
-                    message=plain_message,
-                    html_message=html_message,
+                    body=plain_message,
                     from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[user.email],
-                    reply_to=[getattr(settings, 'EMAIL_REPLY_TO')],
-                    fail_silently=False,
+                    to=[user.email],
+                    **email_kwargs,
                 )
+                email.attach_alternative(html_message, "text/html")
+                email.send(fail_silently=False)
             except Exception as e:
                 print(f"Failed to send campaign update email to {user.email}: {e}")
                 logger.error(f"Failed to send campaign update email to {user.email}: {e}")
@@ -523,6 +533,7 @@ def send_approval_status_email_notifications(campaign_id, notification_user_ids,
             'new_status': new_status,
             'status_message': status_message,
             'site_name': getattr(settings, 'SITE_NAME', 'CRE Studio'),
+            'site_url': getattr(settings, 'SITE_URL', 'http://localhost:3000/'),
         }
         
         # Send emails to each user
@@ -533,15 +544,20 @@ def send_approval_status_email_notifications(campaign_id, notification_user_ids,
                 html_message = render_to_string(template_name, context)
                 plain_message = strip_tags(html_message)
                 
-                send_mail(
+                email_kwargs = {}
+                reply_to = getattr(settings, 'EMAIL_REPLY_TO', None)
+                if reply_to:
+                    email_kwargs['reply_to'] = [reply_to]
+
+                email = EmailMultiAlternatives(
                     subject=subject,
-                    message=plain_message,
-                    html_message=html_message,
+                    body=plain_message,
                     from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[user.email],
-                    reply_to=[getattr(settings, 'EMAIL_REPLY_TO')],
-                    fail_silently=False,
+                    to=[user.email],
+                    **email_kwargs,
                 )
+                email.attach_alternative(html_message, "text/html")
+                email.send(fail_silently=False)
             except Exception as e:
                 print(f"Failed to send approval status email to {user.email}: {e}")
                 logger.error(f"Failed to send approval status email to {user.email}: {e}")
