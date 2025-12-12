@@ -10,7 +10,8 @@ from .views import (
     UserProfileViewSet,
     UserStatsView,
     AcceptInvitationView,
-    ResendInvitationView
+    ResendInvitationView,
+    TokenIntrospectionView,
 )
 from rest_framework.routers import DefaultRouter
 
@@ -29,6 +30,7 @@ urlpatterns = [
     path('jwt/create/', CustomTokenObtainPairView.as_view()),
     path('jwt/refresh/', CustomTokenRefreshView.as_view()),
     path('jwt/verify/', CustomTokenVerifyView.as_view()),
+    path('jwt/introspect/', TokenIntrospectionView.as_view(), name='token-introspect'),
     path('logout/', LogoutView.as_view()),
     path('user-stats/', UserStatsView.as_view(), name='user-stats'),
     path('accept-invitation/<str:token>/', AcceptInvitationView.as_view(), name='accept-invitation'),
