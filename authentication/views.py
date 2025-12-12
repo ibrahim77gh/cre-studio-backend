@@ -18,6 +18,7 @@ from .serializers import (
     UserProfileUpdateSerializer,
     UserStatsSerializer
 )
+from .tokens import CampaignPlannerTokenObtainPairSerializer
 from .models import CustomUser
 from .permissions import CanManageUsers
 from property_app.models import PropertyUserRole, UserPropertyMembership
@@ -56,6 +57,12 @@ class CustomProviderAuthView(ProviderAuthView):
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
+    """
+    Custom token obtain view that uses enhanced JWT tokens with
+    user identity and role information for SSO with Retail Studio.
+    """
+    serializer_class = CampaignPlannerTokenObtainPairSerializer
+    
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
 
@@ -595,3 +602,101 @@ class ResendInvitationView(APIView):
             role_info['property_group_name'] = membership.property_group.name
         
         return role_info
+
+
+class TokenIntrospectionView(APIView):
+    """
+    Token introspection endpoint for Retail Studio (and other services)
+    to validate tokens and get current user information.
+    
+    This endpoint can be used by external services to:
+    1. Verify that a token is valid and not expired
+    2. Get fresh user data (in case token claims are stale)
+    3. Get detailed user permissions and memberships
+    
+    Requires a valid JWT token in the Authorization header or cookie.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        """
+        Return current user information for token validation.
+        
+        Returns:
+            JSON response with:
+            - active: bool - whether the token/user is active
+            - user_id: int - the user's ID
+            - email: str - the user's email
+            - first_name: str - the user's first name
+            - last_name: str - the user's last name
+            - is_superuser: bool - superuser flag
+            - is_staff: bool - staff flag
+            - is_active: bool - active flag
+            - role: str - the user's primary role
+            - memberships: list - detailed membership information
+        """
+        user = request.user
+        
+        return Response({
+            'active': True,
+            'user_id': user.id,
+            'email': user.email,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'is_superuser': user.is_superuser,
+            'is_staff': user.is_staff,
+            'is_active': user.is_active,
+            'role': self._get_user_role(user),
+            'memberships': self._get_user_memberships(user),
+            'iss': 'campaign-planner',
+        })
+    
+    def _get_user_role(self, user):
+        """Get the user's primary role"""
+        if user.is_superuser:
+            return 'super_user'
+        
+        memberships = user.property_memberships.all()
+        if not memberships.exists():
+            return None
+        
+        # Return the highest privilege role
+        role_priority = {
+            PropertyUserRole.GROUP_ADMIN: 3,
+            PropertyUserRole.PROPERTY_ADMIN: 2,
+            PropertyUserRole.TENANT: 1,
+        }
+        
+        highest_role = None
+        highest_priority = 0
+        
+        for membership in memberships:
+            priority = role_priority.get(membership.role, 0)
+            if priority > highest_priority:
+                highest_priority = priority
+                highest_role = membership.role
+        
+        return highest_role
+    
+    def _get_user_memberships(self, user):
+        """Get all user memberships for granular permission checks"""
+        if user.is_superuser:
+            return [{'role': 'super_user', 'scope': 'global'}]
+        
+        memberships = []
+        for m in user.property_memberships.all():
+            membership_data = {'role': m.role}
+            
+            if m.property:
+                membership_data['property_id'] = m.property.id
+                membership_data['property_name'] = m.property.name
+                if m.property.property_group:
+                    membership_data['property_group_id'] = m.property.property_group.id
+                    membership_data['property_group_name'] = m.property.property_group.name
+            elif m.property_group:
+                membership_data['property_group_id'] = m.property_group.id
+                membership_data['property_group_name'] = m.property_group.name
+            
+            memberships.append(membership_data)
+        
+        return memberships

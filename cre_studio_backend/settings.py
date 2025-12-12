@@ -207,12 +207,27 @@ if not DEBUG:
     CSRF_COOKIE_SECURE = True
     X_FRAME_OPTIONS = 'DENY'
 
+# JWT Signing Key for SSO
+# IMPORTANT: This key must be shared with Retail Studio for token validation
+# Generate with: python -c "import secrets; print(secrets.token_urlsafe(64))"
+JWT_SIGNING_KEY = os.environ.get('JWT_SIGNING_KEY', SECRET_KEY)
+
 SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('JWT', 'Bearer'),
     'ACCESS_TOKEN_LIFETIME': timedelta(days=7),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
+    
+    # SSO Configuration
+    'SIGNING_KEY': JWT_SIGNING_KEY,
+    'ALGORITHM': 'HS256',
+    
+    # Token claims configuration
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
+    'TOKEN_TYPE_CLAIM': 'token_type',
+    'JTI_CLAIM': 'jti',
 }
 
 if os.environ.get("DEBUG") == 'True':
@@ -229,19 +244,15 @@ CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
 TOKEN_URI = 'https://oauth2.googleapis.com/token'
 
 # Django CORS Headers settings
-CORS_ALLOW_ALL_ORIGINS = True
-# if DEBUG:
-#     CORS_ALLOW_ALL_ORIGINS = True
-# else:
-#     CORS_ALLOW_ALL_ORIGINS = False
-#     frontend_url = os.environ.get('FRONTEND_URL', 'https://yourdomain.com')
-#     # Remove trailing slash if present to avoid CORS issues
-#     frontend_url = frontend_url.rstrip('/')
-#     CORS_ALLOWED_ORIGINS = [
-#         frontend_url,
-#         frontend_url + '/',  # Include both with and without trailing slash
-#     ]
-
+# SSO: Allow both Campaign Planner and Retail Studio frontends
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    CORS_ALLOW_ALL_ORIGINS = False
+    CORS_ALLOWED_ORIGIN_REGEXES = [
+        r"^https:\/\/.*\.retailstudio\.ai$",
+    ]
+    
 # Additional CORS settings for media files
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_ALL_HEADERS = True
