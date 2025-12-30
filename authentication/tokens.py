@@ -65,35 +65,6 @@ class CampaignPlannerTokenObtainPairSerializer(TokenObtainPairSerializer):
         return data
     
     @classmethod
-    def get_token(cls, user, app=None):
-        token = super().get_token(user)
-        
-        # Core identity claims
-        token['email'] = user.email
-        token['first_name'] = user.first_name or ''
-        token['last_name'] = user.last_name or ''
-        
-        # Permission flags
-        token['is_superuser'] = user.is_superuser
-        token['is_staff'] = user.is_staff
-        token['is_active'] = user.is_active
-        
-        # Role and membership information
-        token['role'] = cls._get_user_role(user)
-        token['memberships'] = cls._get_user_memberships(user)
-        
-        # App information
-        if app:
-            token['app_id'] = app.id
-            token['app_name'] = app.name
-            token['app_slug'] = app.slug
-        
-        # Service identifier (helps Retail Studio verify token origin)
-        token['iss'] = 'campaign-planner'
-        
-        return token
-    
-    @classmethod
     def _get_user_role(cls, user):
         """
         Get the user's primary role.
@@ -158,7 +129,34 @@ class CampaignPlannerTokenObtainPairSerializer(TokenObtainPairSerializer):
         return memberships
     
     def get_token(self, user):
-        """Override to pass app context"""
+        """Override instance method to pass app context to classmethod"""
         app = getattr(self, 'app', None)
-        return self.__class__.get_token(user, app=app)
+        # Call the classmethod using super() to avoid shadowing issues
+        token = super().get_token(user)
+        
+        # Now add our custom claims
+        # Core identity claims
+        token['email'] = user.email
+        token['first_name'] = user.first_name or ''
+        token['last_name'] = user.last_name or ''
+        
+        # Permission flags
+        token['is_superuser'] = user.is_superuser
+        token['is_staff'] = user.is_staff
+        token['is_active'] = user.is_active
+        
+        # Role and membership information
+        token['role'] = self._get_user_role(user)
+        token['memberships'] = self._get_user_memberships(user)
+        
+        # App information
+        if app:
+            token['app_id'] = app.id
+            token['app_name'] = app.name
+            token['app_slug'] = app.slug
+        
+        # Service identifier (helps Retail Studio verify token origin)
+        token['iss'] = 'campaign-planner'
+        
+        return token
 
