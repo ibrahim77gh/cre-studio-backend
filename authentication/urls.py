@@ -12,6 +12,7 @@ from .views import (
     AcceptInvitationView,
     ResendInvitationView,
     TokenIntrospectionView,
+    AppListView,
 )
 from rest_framework.routers import DefaultRouter
 
@@ -35,5 +36,6 @@ urlpatterns = [
     path('user-stats/', UserStatsView.as_view(), name='user-stats'),
     path('accept-invitation/<str:token>/', AcceptInvitationView.as_view(), name='accept-invitation'),
     path('resend-invitation/<int:user_id>/', ResendInvitationView.as_view(), name='resend-invitation'),
+    path('apps/', AppListView.as_view(), name='app-list'),
     path('', include(router.urls)),
 ]

@@ -7,7 +7,9 @@ with Retail Studio.
 """
 
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework import serializers
 from property_app.models import PropertyUserRole
+from .models import App
 
 
 class CampaignPlannerTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -20,11 +22,53 @@ class CampaignPlannerTokenObtainPairSerializer(TokenObtainPairSerializer):
     - Permission flags (is_superuser, is_staff, is_active)
     - Role information (primary role)
     - Memberships (detailed property/group access)
+    - App information (current app context)
     - Issuer claim for token origin verification
     """
+    app_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
+    app_slug = serializers.CharField(required=False, write_only=True, allow_null=True)
+    
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        
+        # Get app from app_id or app_slug
+        app = None
+        app_id = attrs.get('app_id')
+        app_slug = attrs.get('app_slug')
+        
+        if app_id:
+            try:
+                app = App.objects.get(id=app_id, is_active=True)
+            except App.DoesNotExist:
+                raise serializers.ValidationError({
+                    'app_id': 'Invalid app ID or app is not active.'
+                })
+        elif app_slug:
+            try:
+                app = App.objects.get(slug=app_slug, is_active=True)
+            except App.DoesNotExist:
+                raise serializers.ValidationError({
+                    'app_slug': 'Invalid app slug or app is not active.'
+                })
+        else:
+            raise serializers.ValidationError({
+                'app_id': 'Either app_id or app_slug is required.'
+            })
+        
+        # Check if user has access to this app
+        user = self.user
+        if not user.has_access_to_app(app):
+            raise serializers.ValidationError({
+                'app_id': 'You do not have access to this app.'
+            })
+        
+        # Store app in context for token generation
+        self.app = app
+        
+        return data
     
     @classmethod
-    def get_token(cls, user):
+    def get_token(cls, user, app=None):
         token = super().get_token(user)
         
         # Core identity claims
@@ -40,6 +84,12 @@ class CampaignPlannerTokenObtainPairSerializer(TokenObtainPairSerializer):
         # Role and membership information
         token['role'] = cls._get_user_role(user)
         token['memberships'] = cls._get_user_memberships(user)
+        
+        # App information
+        if app:
+            token['app_id'] = app.id
+            token['app_name'] = app.name
+            token['app_slug'] = app.slug
         
         # Service identifier (helps Retail Studio verify token origin)
         token['iss'] = 'campaign-planner'
@@ -109,4 +159,9 @@ class CampaignPlannerTokenObtainPairSerializer(TokenObtainPairSerializer):
             memberships.append(membership_data)
         
         return memberships
+    
+    def get_token(self, user):
+        """Override to pass app context"""
+        app = getattr(self, 'app', None)
+        return self.__class__.get_token(user, app=app)
 

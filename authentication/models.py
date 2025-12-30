@@ -1,6 +1,7 @@
 from django.contrib.auth.models import AbstractBaseUser,    BaseUserManager, PermissionsMixin
 from django.db import models
 from django.utils import timezone
+from django.core.exceptions import ValidationError
 
 
 class UserManager(BaseUserManager):
@@ -146,3 +147,75 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         
         return CustomUser.objects.filter(id__in=manageable_user_ids)
     
+    def has_access_to_app(self, app):
+        """Check if user has access to a specific app"""
+        if self.is_superuser:
+            return True
+        return self.app_memberships.filter(app=app).exists()
+    
+    def get_accessible_apps(self):
+        """Get all apps this user has access to"""
+        if self.is_superuser:
+            return App.objects.all()
+        return App.objects.filter(memberships__user=self).distinct()
+    
+    def get_app_membership(self, app):
+        """Get the user's membership for a specific app"""
+        try:
+            return self.app_memberships.get(app=app)
+        except UserAppMembership.DoesNotExist:
+            return None
+
+
+class App(models.Model):
+    """
+    Represents an application in the multi-app system.
+    Users must be assigned to an app to access it.
+    """
+    name = models.CharField(max_length=255, unique=True)
+    slug = models.SlugField(max_length=100, unique=True, help_text="URL-friendly identifier for the app")
+    description = models.TextField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['name']
+        verbose_name = "App"
+        verbose_name_plural = "Apps"
+    
+    def __str__(self):
+        return self.name
+
+
+class UserAppMembership(models.Model):
+    """
+    Represents a user's membership/assignment to an app.
+    Users must have a membership to login to an app.
+    """
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name="app_memberships"
+    )
+    app = models.ForeignKey(
+        App,
+        on_delete=models.CASCADE,
+        related_name="memberships"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        unique_together = ['user', 'app']
+        verbose_name = "User App Membership"
+        verbose_name_plural = "User App Memberships"
+    
+    def __str__(self):
+        return f"{self.user.email} - {self.app.name}"
+    
+    def clean(self):
+        """Validate that user and app are provided"""
+        if not self.user:
+            raise ValidationError("User is required.")
+        if not self.app:
+            raise ValidationError("App is required.")

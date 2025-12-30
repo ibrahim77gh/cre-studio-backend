@@ -19,7 +19,7 @@ from .serializers import (
     UserStatsSerializer
 )
 from .tokens import CampaignPlannerTokenObtainPairSerializer
-from .models import CustomUser
+from .models import CustomUser, App
 from .permissions import CanManageUsers
 from property_app.models import PropertyUserRole, UserPropertyMembership
 
@@ -604,6 +604,41 @@ class ResendInvitationView(APIView):
         return role_info
 
 
+class AppListView(APIView):
+    """
+    API endpoint to list all apps that the current user has access to.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        """
+        Return list of apps the user has access to.
+        Superusers see all active apps.
+        """
+        user = request.user
+        
+        if user.is_superuser:
+            apps = App.objects.filter(is_active=True)
+        else:
+            apps = user.get_accessible_apps()
+        
+        app_list = [
+            {
+                'id': app.id,
+                'name': app.name,
+                'slug': app.slug,
+                'description': app.description,
+                'is_active': app.is_active
+            }
+            for app in apps
+        ]
+        
+        return Response({
+            'apps': app_list,
+            'count': len(app_list)
+        })
+
+
 class TokenIntrospectionView(APIView):
     """
     Token introspection endpoint for Retail Studio (and other services)
@@ -613,6 +648,7 @@ class TokenIntrospectionView(APIView):
     1. Verify that a token is valid and not expired
     2. Get fresh user data (in case token claims are stale)
     3. Get detailed user permissions and memberships
+    4. Get app context information
     
     Requires a valid JWT token in the Authorization header or cookie.
     """
@@ -634,8 +670,36 @@ class TokenIntrospectionView(APIView):
             - is_active: bool - active flag
             - role: str - the user's primary role
             - memberships: list - detailed membership information
+            - app: dict - current app information (from token)
+            - accessible_apps: list - all apps user has access to
         """
         user = request.user
+        
+        # Get app from token if available
+        app_info = None
+        if hasattr(request, 'auth') and request.auth:
+            app_id = request.auth.get('app_id')
+            if app_id:
+                from .models import App
+                try:
+                    app = App.objects.get(id=app_id)
+                    app_info = {
+                        'id': app.id,
+                        'name': app.name,
+                        'slug': app.slug
+                    }
+                except App.DoesNotExist:
+                    pass
+        
+        # Get all accessible apps
+        accessible_apps = [
+            {
+                'id': app.id,
+                'name': app.name,
+                'slug': app.slug
+            }
+            for app in user.get_accessible_apps()
+        ]
         
         return Response({
             'active': True,
@@ -648,6 +712,8 @@ class TokenIntrospectionView(APIView):
             'is_active': user.is_active,
             'role': self._get_user_role(user),
             'memberships': self._get_user_memberships(user),
+            'app': app_info,
+            'accessible_apps': accessible_apps,
             'iss': 'campaign-planner',
         })
     
