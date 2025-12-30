@@ -665,6 +665,47 @@ class AppListView(APIView):
         })
 
 
+class AllAppsListView(APIView):
+    """
+    API endpoint to list ALL apps in the system (admin only).
+    Useful for user management when assigning apps to users.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        """
+        Return list of all apps in the system.
+        Only accessible by superusers or staff members.
+        """
+        if not (request.user.is_superuser or request.user.is_staff):
+            return Response(
+                {'error': 'You do not have permission to view all apps.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        apps = App.objects.all().order_by('name')
+        
+        app_list = [
+            {
+                'id': app.id,
+                'name': app.name,
+                'slug': app.slug,
+                'description': app.description,
+                'is_active': app.is_active,
+                'created_at': app.created_at,
+                'updated_at': app.updated_at
+            }
+            for app in apps
+        ]
+        
+        return Response({
+            'apps': app_list,
+            'count': len(app_list),
+            'active_count': apps.filter(is_active=True).count(),
+            'inactive_count': apps.filter(is_active=False).count()
+        })
+
+
 class SwitchAppView(APIView):
     """
     API endpoint to switch/select an app and get a new token with app context.
