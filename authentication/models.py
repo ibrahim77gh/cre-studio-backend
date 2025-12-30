@@ -156,8 +156,9 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     def get_accessible_apps(self):
         """Get all apps this user has access to"""
         if self.is_superuser:
-            return App.objects.all()
-        return App.objects.filter(memberships__user=self).distinct()
+            # Superusers have access to all active apps
+            return App.objects.filter(is_active=True)
+        return App.objects.filter(memberships__user=self, is_active=True).distinct()
     
     def get_app_membership(self, app):
         """Get the user's membership for a specific app"""

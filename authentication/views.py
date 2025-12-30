@@ -613,14 +613,10 @@ class AppListView(APIView):
     def get(self, request):
         """
         Return list of apps the user has access to.
-        Superusers see all active apps.
+        Superusers see all active apps (handled by get_accessible_apps()).
         """
         user = request.user
-        
-        if user.is_superuser:
-            apps = App.objects.filter(is_active=True)
-        else:
-            apps = user.get_accessible_apps()
+        apps = user.get_accessible_apps()
         
         app_list = [
             {
