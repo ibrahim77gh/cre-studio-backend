@@ -60,6 +60,10 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     """
     Custom token obtain view that uses enhanced JWT tokens with
     user identity and role information for SSO with Retail Studio.
+    
+    App selection is optional during login. Users can login without
+    specifying an app and choose one later, or specify an app_id/app_slug
+    to login directly to that app.
     """
     serializer_class = CampaignPlannerTokenObtainPairSerializer
     
@@ -68,6 +72,32 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
         if response.status_code == 200:
             set_tokens(response)
+            
+            # Get user from serializer to add accessible apps
+            serializer = self.get_serializer(data=request.data)
+            if serializer.is_valid():
+                user = serializer.user
+                
+                # Add accessible apps to response so frontend can show app selection
+                accessible_apps = user.get_accessible_apps()
+                response.data['accessible_apps'] = [
+                    {
+                        'id': app.id,
+                        'name': app.name,
+                        'slug': app.slug,
+                        'description': app.description
+                    }
+                    for app in accessible_apps
+                ]
+                
+                # If user has only one app, include it in the response
+                if accessible_apps.count() == 1:
+                    single_app = accessible_apps.first()
+                    response.data['single_app'] = {
+                        'id': single_app.id,
+                        'name': single_app.name,
+                        'slug': single_app.slug
+                    }
 
         return response
 
@@ -633,6 +663,82 @@ class AppListView(APIView):
             'apps': app_list,
             'count': len(app_list)
         })
+
+
+class SwitchAppView(APIView):
+    """
+    API endpoint to switch/select an app and get a new token with app context.
+    This allows users to switch between apps after login.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request):
+        """
+        Switch to a different app and get a new token with app context.
+        
+        Request body:
+        {
+            "app_id": 1  // or "app_slug": "app-name"
+        }
+        """
+        user = request.user
+        app_id = request.data.get('app_id')
+        app_slug = request.data.get('app_slug')
+        
+        app = None
+        
+        if app_id:
+            try:
+                app = App.objects.get(id=app_id, is_active=True)
+            except App.DoesNotExist:
+                return Response(
+                    {'error': 'Invalid app ID or app is not active.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        elif app_slug:
+            try:
+                app = App.objects.get(slug=app_slug, is_active=True)
+            except App.DoesNotExist:
+                return Response(
+                    {'error': 'Invalid app slug or app is not active.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        else:
+            return Response(
+                {'error': 'Either app_id or app_slug is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if user has access to this app
+        if not user.has_access_to_app(app):
+            return Response(
+                {'error': 'You do not have access to this app.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Generate new token with app context
+        from .tokens import CampaignPlannerTokenObtainPairSerializer
+        
+        # Create a serializer instance to use its get_token method
+        serializer = CampaignPlannerTokenObtainPairSerializer()
+        serializer.user = user
+        serializer.app = app
+        refresh_token = serializer.get_token(user)
+        
+        response_data = {
+            'access': str(refresh_token.access_token),
+            'refresh': str(refresh_token),
+            'app': {
+                'id': app.id,
+                'name': app.name,
+                'slug': app.slug
+            }
+        }
+        
+        response = Response(response_data, status=status.HTTP_200_OK)
+        set_tokens(response)
+        
+        return response
 
 
 class TokenIntrospectionView(APIView):

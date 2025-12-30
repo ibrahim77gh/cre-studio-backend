@@ -31,7 +31,7 @@ class CampaignPlannerTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         data = super().validate(attrs)
         
-        # Get app from app_id or app_slug
+        # Get app from app_id or app_slug (optional)
         app = None
         app_id = attrs.get('app_id')
         app_slug = attrs.get('app_slug')
@@ -50,19 +50,16 @@ class CampaignPlannerTokenObtainPairSerializer(TokenObtainPairSerializer):
                 raise serializers.ValidationError({
                     'app_slug': 'Invalid app slug or app is not active.'
                 })
-        else:
-            raise serializers.ValidationError({
-                'app_id': 'Either app_id or app_slug is required.'
-            })
         
-        # Check if user has access to this app
-        user = self.user
-        if not user.has_access_to_app(app):
-            raise serializers.ValidationError({
-                'app_id': 'You do not have access to this app.'
-            })
+        # If app is provided, validate user has access to it
+        if app:
+            user = self.user
+            if not user.has_access_to_app(app):
+                raise serializers.ValidationError({
+                    'app_id': 'You do not have access to this app.'
+                })
         
-        # Store app in context for token generation
+        # Store app in context for token generation (can be None)
         self.app = app
         
         return data
