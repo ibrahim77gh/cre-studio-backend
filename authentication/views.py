@@ -386,6 +386,188 @@ class UserManagementViewSet(viewsets.ModelViewSet):
                 unique_roles.append(role)
         
         return Response({'roles': unique_roles})
+    
+    @action(detail=True, methods=['post'])
+    def assign_apps(self, request, pk=None):
+        """
+        Assign one or more apps to a user.
+        
+        Request body:
+        {
+            "app_ids": [1, 2, 3]
+        }
+        """
+        user = self.get_object()
+        app_ids = request.data.get('app_ids', [])
+        
+        if not isinstance(app_ids, list):
+            return Response(
+                {'error': 'app_ids must be a list'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate all app IDs first
+        from .models import App, UserAppMembership
+        apps = []
+        for app_id in app_ids:
+            try:
+                app = App.objects.get(id=app_id, is_active=True)
+                apps.append(app)
+            except App.DoesNotExist:
+                return Response(
+                    {'error': f'Invalid app ID {app_id} or app is not active'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Assign apps (create if doesn't exist)
+        assigned_count = 0
+        for app in apps:
+            _, created = UserAppMembership.objects.get_or_create(user=user, app=app)
+            if created:
+                assigned_count += 1
+        
+        return Response({
+            'status': 'success',
+            'message': f'Assigned {assigned_count} new app(s) to user',
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'apps': [
+                    {
+                        'id': app.id,
+                        'name': app.name,
+                        'slug': app.slug
+                    }
+                    for app in user.get_accessible_apps()
+                ]
+            }
+        })
+    
+    @action(detail=True, methods=['post'])
+    def remove_apps(self, request, pk=None):
+        """
+        Remove one or more apps from a user.
+        
+        Request body:
+        {
+            "app_ids": [1, 2]
+        }
+        """
+        user = self.get_object()
+        app_ids = request.data.get('app_ids', [])
+        
+        if not isinstance(app_ids, list):
+            return Response(
+                {'error': 'app_ids must be a list'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        from .models import UserAppMembership
+        
+        # Remove app memberships
+        deleted_count = UserAppMembership.objects.filter(
+            user=user,
+            app_id__in=app_ids
+        ).delete()[0]
+        
+        return Response({
+            'status': 'success',
+            'message': f'Removed {deleted_count} app(s) from user',
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'apps': [
+                    {
+                        'id': app.id,
+                        'name': app.name,
+                        'slug': app.slug
+                    }
+                    for app in user.get_accessible_apps()
+                ]
+            }
+        })
+    
+    @action(detail=True, methods=['post'])
+    def sync_apps(self, request, pk=None):
+        """
+        Synchronize user's app assignments (replaces all existing assignments).
+        
+        Request body:
+        {
+            "app_ids": [1, 2, 3]
+        }
+        """
+        user = self.get_object()
+        app_ids = request.data.get('app_ids', [])
+        
+        if not isinstance(app_ids, list):
+            return Response(
+                {'error': 'app_ids must be a list'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        from .models import App, UserAppMembership
+        
+        # Validate all app IDs first
+        apps = []
+        for app_id in app_ids:
+            try:
+                app = App.objects.get(id=app_id, is_active=True)
+                apps.append(app)
+            except App.DoesNotExist:
+                return Response(
+                    {'error': f'Invalid app ID {app_id} or app is not active'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Remove all existing app memberships
+        user.app_memberships.all().delete()
+        
+        # Create new app memberships
+        for app in apps:
+            UserAppMembership.objects.create(user=user, app=app)
+        
+        return Response({
+            'status': 'success',
+            'message': f'Synchronized {len(apps)} app(s) for user',
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'apps': [
+                    {
+                        'id': app.id,
+                        'name': app.name,
+                        'slug': app.slug
+                    }
+                    for app in user.get_accessible_apps()
+                ]
+            }
+        })
+    
+    @action(detail=True, methods=['get'])
+    def apps(self, request, pk=None):
+        """
+        Get all apps assigned to a user.
+        """
+        user = self.get_object()
+        apps = user.get_accessible_apps()
+        
+        return Response({
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'is_superuser': user.is_superuser
+            },
+            'apps': [
+                {
+                    'id': app.id,
+                    'name': app.name,
+                    'slug': app.slug,
+                    'description': app.description
+                }
+                for app in apps
+            ]
+        })
 
 
 # Keep the old AdminUserViewSet for backward compatibility if needed

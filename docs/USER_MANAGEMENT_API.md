@@ -185,6 +185,217 @@ Returns the roles that the current user can assign to others.
 }
 ```
 
+## App Assignment Management
+
+### Overview
+
+Users can be assigned to one or more apps to control their access. The app assignment system allows administrators to:
+- Assign apps during user creation
+- Update app assignments when editing users
+- Manage app assignments through dedicated endpoints
+- View which apps a user has access to
+
+Superusers automatically have access to all active apps.
+
+### App Assignment in User Creation/Update
+
+When creating or updating users, you can include the `app_ids` field:
+
+**Create User with App Assignment:**
+```json
+{
+  "email": "newuser@example.com",
+  "password": "securepassword123",
+  "confirm_password": "securepassword123",
+  "first_name": "Jane",
+  "last_name": "Smith",
+  "role": "tenant",
+  "property_id": 1,
+  "app_ids": [1, 2, 3]
+}
+```
+
+**Update User's App Assignments:**
+```
+PATCH /api/auth/user-management/{id}/
+```
+```json
+{
+  "app_ids": [1, 2, 3]
+}
+```
+
+### Dedicated App Assignment Endpoints
+
+#### Assign Apps to User
+```
+POST /api/auth/user-management/{id}/assign_apps/
+```
+
+Assigns one or more apps to a user. Creates new app memberships without removing existing ones.
+
+**Request Body:**
+```json
+{
+  "app_ids": [1, 2, 3]
+}
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "message": "Assigned 2 new app(s) to user",
+  "user": {
+    "id": 5,
+    "email": "user@example.com",
+    "apps": [
+      {
+        "id": 1,
+        "name": "Campaign Planner",
+        "slug": "campaign-planner"
+      },
+      {
+        "id": 2,
+        "name": "Analytics Dashboard",
+        "slug": "analytics"
+      }
+    ]
+  }
+}
+```
+
+#### Remove Apps from User
+```
+POST /api/auth/user-management/{id}/remove_apps/
+```
+
+Removes one or more apps from a user's assignments.
+
+**Request Body:**
+```json
+{
+  "app_ids": [2]
+}
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "message": "Removed 1 app(s) from user",
+  "user": {
+    "id": 5,
+    "email": "user@example.com",
+    "apps": [
+      {
+        "id": 1,
+        "name": "Campaign Planner",
+        "slug": "campaign-planner"
+      }
+    ]
+  }
+}
+```
+
+#### Synchronize User's App Assignments
+```
+POST /api/auth/user-management/{id}/sync_apps/
+```
+
+Replaces all existing app assignments with the provided list. Useful for bulk updates.
+
+**Request Body:**
+```json
+{
+  "app_ids": [1, 3]
+}
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "message": "Synchronized 2 app(s) for user",
+  "user": {
+    "id": 5,
+    "email": "user@example.com",
+    "apps": [
+      {
+        "id": 1,
+        "name": "Campaign Planner",
+        "slug": "campaign-planner"
+      },
+      {
+        "id": 3,
+        "name": "Reporting Tool",
+        "slug": "reporting"
+      }
+    ]
+  }
+}
+```
+
+#### Get User's Apps
+```
+GET /api/auth/user-management/{id}/apps/
+```
+
+Retrieves all apps assigned to a user.
+
+**Response:**
+```json
+{
+  "user": {
+    "id": 5,
+    "email": "user@example.com",
+    "is_superuser": false
+  },
+  "apps": [
+    {
+      "id": 1,
+      "name": "Campaign Planner",
+      "slug": "campaign-planner",
+      "description": "Plan and manage marketing campaigns"
+    },
+    {
+      "id": 2,
+      "name": "Analytics Dashboard",
+      "slug": "analytics",
+      "description": "View analytics and reports"
+    }
+  ]
+}
+```
+
+### App Assignment in List Response
+
+When listing users, the response includes app information:
+
+```json
+{
+  "id": 1,
+  "email": "user@example.com",
+  "first_name": "John",
+  "last_name": "Doe",
+  "is_active": true,
+  "role_info": {
+    "role": "tenant",
+    "property": {
+      "id": 1,
+      "name": "Sample Mall"
+    }
+  },
+  "apps": [
+    {
+      "id": 1,
+      "name": "Campaign Planner",
+      "slug": "campaign-planner"
+    }
+  ]
+}
+```
+
 ## Permission System
 
 ### Hierarchical Access Control
@@ -205,6 +416,14 @@ The system implements a strict hierarchy where higher-level roles can manage low
 - Users can only manage other users within their assigned properties/groups
 - Users cannot modify themselves through these APIs (prevents privilege escalation)
 - Role assignments are validated against the requester's permissions
+
+### App Access Control
+
+- Users must be explicitly assigned to apps to access them
+- Superusers automatically have access to all active apps
+- App assignments are independent of property/role assignments
+- Only active apps can be assigned to users
+- Invalid app IDs will result in validation errors
 
 ## Error Responses
 
@@ -251,13 +470,100 @@ const createPropertyAdmin = async (userData) => {
       first_name: userData.firstName,
       last_name: userData.lastName,
       role: 'property_admin',
-      property_id: userData.propertyId
+      property_id: userData.propertyId,
+      app_ids: [1, 2]  // Assign to Campaign Planner and Analytics apps
     })
   });
   
   if (!response.ok) {
     const errors = await response.json();
     throw new Error(JSON.stringify(errors));
+  }
+  
+  return await response.json();
+};
+```
+
+#### Assigning Apps to Existing User
+```javascript
+const assignAppsToUser = async (userId, appIds) => {
+  const response = await fetch(`/api/auth/user-management/${userId}/assign_apps/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + accessToken
+    },
+    body: JSON.stringify({
+      app_ids: appIds
+    })
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to assign apps');
+  }
+  
+  return await response.json();
+};
+```
+
+#### Removing Apps from User
+```javascript
+const removeAppsFromUser = async (userId, appIds) => {
+  const response = await fetch(`/api/auth/user-management/${userId}/remove_apps/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + accessToken
+    },
+    body: JSON.stringify({
+      app_ids: appIds
+    })
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to remove apps');
+  }
+  
+  return await response.json();
+};
+```
+
+#### Synchronizing User's App Access
+```javascript
+const syncUserApps = async (userId, appIds) => {
+  const response = await fetch(`/api/auth/user-management/${userId}/sync_apps/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + accessToken
+    },
+    body: JSON.stringify({
+      app_ids: appIds
+    })
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to sync apps');
+  }
+  
+  return await response.json();
+};
+```
+
+#### Getting User's Assigned Apps
+```javascript
+const getUserApps = async (userId) => {
+  const response = await fetch(`/api/auth/user-management/${userId}/apps/`, {
+    headers: {
+      'Authorization': 'Bearer ' + accessToken
+    }
+  });
+  
+  if (!response.ok) {
+    throw new Error('Failed to fetch user apps');
   }
   
   return await response.json();
@@ -365,3 +671,35 @@ The manual activation endpoint (`POST /api/auth/user-management/{id}/activate/`)
 - Users have 7 days to accept their invitation before it expires
 - The system integrates with your existing Djoser authentication setup
 - All timestamps are in UTC format
+
+## Quick Reference: App Assignment Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/auth/user-management/` | Create user with `app_ids` in body |
+| PATCH | `/api/auth/user-management/{id}/` | Update user with `app_ids` in body |
+| POST | `/api/auth/user-management/{id}/assign_apps/` | Add apps to user (incremental) |
+| POST | `/api/auth/user-management/{id}/remove_apps/` | Remove apps from user |
+| POST | `/api/auth/user-management/{id}/sync_apps/` | Replace all apps (bulk update) |
+| GET | `/api/auth/user-management/{id}/apps/` | Get user's assigned apps |
+| GET | `/api/auth/user-management/` | List users (includes `apps` field) |
+| GET | `/api/auth/user-management/{id}/` | Get user details (includes `apps` field) |
+
+## Common Use Cases
+
+### Creating a User with App Access
+1. Use `POST /api/auth/user-management/` with `app_ids` in the request body
+2. User receives invitation email
+3. User accepts invitation and gains access to assigned apps
+
+### Adding App Access to Existing User
+1. Use `POST /api/auth/user-management/{id}/assign_apps/` to add one or more apps
+2. Or use `PATCH /api/auth/user-management/{id}/` with `app_ids` to update assignments
+
+### Bulk Updating User's App Access
+1. Use `POST /api/auth/user-management/{id}/sync_apps/` to replace all assignments at once
+2. This removes all existing assignments and creates new ones
+
+### Checking User's App Access
+1. Use `GET /api/auth/user-management/{id}/apps/` to see all apps the user can access
+2. Or use `GET /api/auth/user-management/{id}/` to see user details including apps
