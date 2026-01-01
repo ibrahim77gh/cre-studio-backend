@@ -7,7 +7,9 @@ with Retail Studio.
 """
 
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework import serializers
 from property_app.models import PropertyUserRole
+from .models import App
 
 
 class CampaignPlannerTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -20,31 +22,47 @@ class CampaignPlannerTokenObtainPairSerializer(TokenObtainPairSerializer):
     - Permission flags (is_superuser, is_staff, is_active)
     - Role information (primary role)
     - Memberships (detailed property/group access)
+    - App information (current app context)
     - Issuer claim for token origin verification
     """
+    app_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
+    app_slug = serializers.CharField(required=False, write_only=True, allow_null=True)
     
-    @classmethod
-    def get_token(cls, user):
-        token = super().get_token(user)
+    def validate(self, attrs):
+        data = super().validate(attrs)
         
-        # Core identity claims
-        token['email'] = user.email
-        token['first_name'] = user.first_name or ''
-        token['last_name'] = user.last_name or ''
+        # Get app from app_id or app_slug (optional)
+        app = None
+        app_id = attrs.get('app_id')
+        app_slug = attrs.get('app_slug')
         
-        # Permission flags
-        token['is_superuser'] = user.is_superuser
-        token['is_staff'] = user.is_staff
-        token['is_active'] = user.is_active
+        if app_id:
+            try:
+                app = App.objects.get(id=app_id, is_active=True)
+            except App.DoesNotExist:
+                raise serializers.ValidationError({
+                    'app_id': 'Invalid app ID or app is not active.'
+                })
+        elif app_slug:
+            try:
+                app = App.objects.get(slug=app_slug, is_active=True)
+            except App.DoesNotExist:
+                raise serializers.ValidationError({
+                    'app_slug': 'Invalid app slug or app is not active.'
+                })
         
-        # Role and membership information
-        token['role'] = cls._get_user_role(user)
-        token['memberships'] = cls._get_user_memberships(user)
+        # If app is provided, validate user has access to it
+        if app:
+            user = self.user
+            if not user.has_access_to_app(app):
+                raise serializers.ValidationError({
+                    'app_id': 'You do not have access to this app.'
+                })
         
-        # Service identifier (helps Retail Studio verify token origin)
-        token['iss'] = 'campaign-planner'
+        # Store app in context for token generation (can be None)
+        self.app = app
         
-        return token
+        return data
     
     @classmethod
     def _get_user_role(cls, user):
@@ -109,4 +127,36 @@ class CampaignPlannerTokenObtainPairSerializer(TokenObtainPairSerializer):
             memberships.append(membership_data)
         
         return memberships
+    
+    def get_token(self, user):
+        """Override instance method to pass app context to classmethod"""
+        app = getattr(self, 'app', None)
+        # Call the classmethod using super() to avoid shadowing issues
+        token = super().get_token(user)
+        
+        # Now add our custom claims
+        # Core identity claims
+        token['email'] = user.email
+        token['first_name'] = user.first_name or ''
+        token['last_name'] = user.last_name or ''
+        
+        # Permission flags
+        token['is_superuser'] = user.is_superuser
+        token['is_staff'] = user.is_staff
+        token['is_active'] = user.is_active
+        
+        # Role and membership information
+        token['role'] = self._get_user_role(user)
+        token['memberships'] = self._get_user_memberships(user)
+        
+        # App information
+        if app:
+            token['app_id'] = app.id
+            token['app_name'] = app.name
+            token['app_slug'] = app.slug
+        
+        # Service identifier (helps Retail Studio verify token origin)
+        token['iss'] = 'campaign-planner'
+        
+        return token
 

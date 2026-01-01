@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 
 from property_app.models import PropertyUserRole, UserPropertyMembership, Property, PropertyGroup
-from .models import CustomUser
+from .models import CustomUser, App, UserAppMembership
 
 
 class UserCreateSerializer(BaseUserCreateSerializer):
@@ -75,7 +75,7 @@ class UserSerializer(BaseUserSerializer):
 class UserManagementCreateSerializer(serializers.ModelSerializer):
     """
     Serializer for creating users through the management API.
-    Handles role assignment and property/group membership.
+    Handles role assignment, property/group membership, and app assignment.
     """
     password = serializers.CharField(write_only=True)
     confirm_password = serializers.CharField(write_only=True)
@@ -85,16 +85,25 @@ class UserManagementCreateSerializer(serializers.ModelSerializer):
     )
     property_id = serializers.IntegerField(required=False, allow_null=True, write_only=True)
     property_group_id = serializers.IntegerField(required=False, allow_null=True, write_only=True)
+    app_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        allow_empty=True,
+        write_only=True,
+        help_text="List of app IDs to assign the user to"
+    )
     
     # Read-only fields for response
     role_info = serializers.SerializerMethodField(read_only=True)
+    apps = serializers.SerializerMethodField(read_only=True)
     date_joined = serializers.DateTimeField(read_only=True)
 
     class Meta:
         model = CustomUser
         fields = [
             'id', 'email', 'first_name', 'last_name', 'password', 'confirm_password',
-            'role', 'property_id', 'property_group_id', 'is_active', 'role_info', 'date_joined'
+            'role', 'property_id', 'property_group_id', 'app_ids', 'is_active', 
+            'role_info', 'apps', 'date_joined'
         ]
 
     def validate(self, attrs):
@@ -163,6 +172,15 @@ class UserManagementCreateSerializer(serializers.ModelSerializer):
             except PropertyGroup.DoesNotExist:
                 raise serializers.ValidationError("Invalid property group ID.")
         
+        # Validate app_ids if provided
+        app_ids = attrs.get('app_ids', [])
+        if app_ids:
+            for app_id in app_ids:
+                try:
+                    app = App.objects.get(id=app_id, is_active=True)
+                except App.DoesNotExist:
+                    raise serializers.ValidationError(f"Invalid app ID {app_id} or app is not active.")
+        
         return attrs
 
     def create(self, validated_data):
@@ -172,6 +190,7 @@ class UserManagementCreateSerializer(serializers.ModelSerializer):
         role = validated_data.pop('role')
         property_id = validated_data.pop('property_id', None)
         property_group_id = validated_data.pop('property_group_id', None)
+        app_ids = validated_data.pop('app_ids', [])
 
         # Flags for staff/superuser
         is_superuser = False
@@ -206,6 +225,11 @@ class UserManagementCreateSerializer(serializers.ModelSerializer):
                 membership_data['property_group'] = PropertyGroup.objects.get(id=property_group_id)
 
             UserPropertyMembership.objects.create(**membership_data)
+        
+        # Create app memberships
+        for app_id in app_ids:
+            app = App.objects.get(id=app_id)
+            UserAppMembership.objects.get_or_create(user=user, app=app)
 
         # Send invitation email
         self._send_invitation_email(user, role, property_id, property_group_id)
@@ -277,6 +301,18 @@ class UserManagementCreateSerializer(serializers.ModelSerializer):
             }
             
         return role_info
+    
+    def get_apps(self, obj):
+        """Get app information for the created user"""
+        apps = obj.get_accessible_apps()
+        return [
+            {
+                'id': app.id,
+                'name': app.name,
+                'slug': app.slug
+            }
+            for app in apps
+        ]
 
 
 class UserManagementUpdateSerializer(serializers.ModelSerializer):
@@ -291,15 +327,24 @@ class UserManagementUpdateSerializer(serializers.ModelSerializer):
     )
     property_id = serializers.IntegerField(required=False, allow_null=True, write_only=True)
     property_group_id = serializers.IntegerField(required=False, allow_null=True, write_only=True)
+    app_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        allow_empty=True,
+        write_only=True,
+        help_text="List of app IDs to assign the user to"
+    )
     
     # Read-only fields
     role_info = serializers.SerializerMethodField(read_only=True)
+    apps = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = CustomUser
         fields = [
             'id', 'email', 'first_name', 'last_name', 'password',
-            'role', 'property_id', 'property_group_id', 'is_active', 'role_info'
+            'role', 'property_id', 'property_group_id', 'app_ids', 'is_active', 
+            'role_info', 'apps'
         ]
 
     def validate(self, attrs):
@@ -366,6 +411,15 @@ class UserManagementUpdateSerializer(serializers.ModelSerializer):
             except PropertyGroup.DoesNotExist:
                 raise serializers.ValidationError("Invalid property group ID.")
         
+        # Validate app_ids if provided
+        app_ids = attrs.get('app_ids', [])
+        if app_ids:
+            for app_id in app_ids:
+                try:
+                    app = App.objects.get(id=app_id, is_active=True)
+                except App.DoesNotExist:
+                    raise serializers.ValidationError(f"Invalid app ID {app_id} or app is not active.")
+        
         return attrs
 
     def update(self, instance, validated_data):
@@ -374,6 +428,7 @@ class UserManagementUpdateSerializer(serializers.ModelSerializer):
         role = validated_data.pop('role', None)
         property_id = validated_data.pop('property_id', None)
         property_group_id = validated_data.pop('property_group_id', None)
+        app_ids = validated_data.pop('app_ids', None)
         
         # Update basic user fields
         for attr, value in validated_data.items():
@@ -410,6 +465,15 @@ class UserManagementUpdateSerializer(serializers.ModelSerializer):
                     
                 UserPropertyMembership.objects.create(**membership_data)
         
+        # Handle app assignments
+        if app_ids is not None:
+            # Remove all existing app memberships
+            instance.app_memberships.all().delete()
+            # Create new app memberships
+            for app_id in app_ids:
+                app = App.objects.get(id=app_id)
+                UserAppMembership.objects.create(user=instance, app=app)
+        
         instance.save()
         return instance
     
@@ -437,6 +501,18 @@ class UserManagementUpdateSerializer(serializers.ModelSerializer):
             }
             
         return role_info
+    
+    def get_apps(self, obj):
+        """Get app information for the user"""
+        apps = obj.get_accessible_apps()
+        return [
+            {
+                'id': app.id,
+                'name': app.name,
+                'slug': app.slug
+            }
+            for app in apps
+        ]
 
 
 class UserProfileUpdateSerializer(serializers.ModelSerializer):
@@ -483,12 +559,13 @@ class UserManagementListSerializer(serializers.ModelSerializer):
     Serializer for listing users in management API.
     """
     role_info = serializers.SerializerMethodField()
+    apps = serializers.SerializerMethodField()
 
     class Meta:
         model = CustomUser
         fields = [
             'id', 'email', 'first_name', 'last_name', 'is_active',
-            'is_staff', 'is_superuser', 'date_joined', 'last_login', 'role_info'
+            'is_staff', 'is_superuser', 'date_joined', 'last_login', 'role_info', 'apps'
         ]
 
     def get_role_info(self, obj):
@@ -519,6 +596,18 @@ class UserManagementListSerializer(serializers.ModelSerializer):
             }
             
         return role_info
+    
+    def get_apps(self, obj):
+        """Get app information for the user"""
+        apps = obj.get_accessible_apps()
+        return [
+            {
+                'id': app.id,
+                'name': app.name,
+                'slug': app.slug
+            }
+            for app in apps
+        ]
 
 
 class UserStatsSerializer(serializers.Serializer):

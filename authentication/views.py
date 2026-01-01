@@ -19,7 +19,7 @@ from .serializers import (
     UserStatsSerializer
 )
 from .tokens import CampaignPlannerTokenObtainPairSerializer
-from .models import CustomUser
+from .models import CustomUser, App
 from .permissions import CanManageUsers
 from property_app.models import PropertyUserRole, UserPropertyMembership
 
@@ -60,6 +60,10 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     """
     Custom token obtain view that uses enhanced JWT tokens with
     user identity and role information for SSO with Retail Studio.
+    
+    App selection is optional during login. Users can login without
+    specifying an app and choose one later, or specify an app_id/app_slug
+    to login directly to that app.
     """
     serializer_class = CampaignPlannerTokenObtainPairSerializer
     
@@ -68,6 +72,32 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
         if response.status_code == 200:
             set_tokens(response)
+            
+            # Get user from serializer to add accessible apps
+            serializer = self.get_serializer(data=request.data)
+            if serializer.is_valid():
+                user = serializer.user
+                
+                # Add accessible apps to response so frontend can show app selection
+                accessible_apps = user.get_accessible_apps()
+                response.data['accessible_apps'] = [
+                    {
+                        'id': app.id,
+                        'name': app.name,
+                        'slug': app.slug,
+                        'description': app.description
+                    }
+                    for app in accessible_apps
+                ]
+                
+                # If user has only one app, include it in the response
+                if accessible_apps.count() == 1:
+                    single_app = accessible_apps.first()
+                    response.data['single_app'] = {
+                        'id': single_app.id,
+                        'name': single_app.name,
+                        'slug': single_app.slug
+                    }
 
         return response
 
@@ -356,6 +386,188 @@ class UserManagementViewSet(viewsets.ModelViewSet):
                 unique_roles.append(role)
         
         return Response({'roles': unique_roles})
+    
+    @action(detail=True, methods=['post'])
+    def assign_apps(self, request, pk=None):
+        """
+        Assign one or more apps to a user.
+        
+        Request body:
+        {
+            "app_ids": [1, 2, 3]
+        }
+        """
+        user = self.get_object()
+        app_ids = request.data.get('app_ids', [])
+        
+        if not isinstance(app_ids, list):
+            return Response(
+                {'error': 'app_ids must be a list'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate all app IDs first
+        from .models import App, UserAppMembership
+        apps = []
+        for app_id in app_ids:
+            try:
+                app = App.objects.get(id=app_id, is_active=True)
+                apps.append(app)
+            except App.DoesNotExist:
+                return Response(
+                    {'error': f'Invalid app ID {app_id} or app is not active'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Assign apps (create if doesn't exist)
+        assigned_count = 0
+        for app in apps:
+            _, created = UserAppMembership.objects.get_or_create(user=user, app=app)
+            if created:
+                assigned_count += 1
+        
+        return Response({
+            'status': 'success',
+            'message': f'Assigned {assigned_count} new app(s) to user',
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'apps': [
+                    {
+                        'id': app.id,
+                        'name': app.name,
+                        'slug': app.slug
+                    }
+                    for app in user.get_accessible_apps()
+                ]
+            }
+        })
+    
+    @action(detail=True, methods=['post'])
+    def remove_apps(self, request, pk=None):
+        """
+        Remove one or more apps from a user.
+        
+        Request body:
+        {
+            "app_ids": [1, 2]
+        }
+        """
+        user = self.get_object()
+        app_ids = request.data.get('app_ids', [])
+        
+        if not isinstance(app_ids, list):
+            return Response(
+                {'error': 'app_ids must be a list'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        from .models import UserAppMembership
+        
+        # Remove app memberships
+        deleted_count = UserAppMembership.objects.filter(
+            user=user,
+            app_id__in=app_ids
+        ).delete()[0]
+        
+        return Response({
+            'status': 'success',
+            'message': f'Removed {deleted_count} app(s) from user',
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'apps': [
+                    {
+                        'id': app.id,
+                        'name': app.name,
+                        'slug': app.slug
+                    }
+                    for app in user.get_accessible_apps()
+                ]
+            }
+        })
+    
+    @action(detail=True, methods=['post'])
+    def sync_apps(self, request, pk=None):
+        """
+        Synchronize user's app assignments (replaces all existing assignments).
+        
+        Request body:
+        {
+            "app_ids": [1, 2, 3]
+        }
+        """
+        user = self.get_object()
+        app_ids = request.data.get('app_ids', [])
+        
+        if not isinstance(app_ids, list):
+            return Response(
+                {'error': 'app_ids must be a list'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        from .models import App, UserAppMembership
+        
+        # Validate all app IDs first
+        apps = []
+        for app_id in app_ids:
+            try:
+                app = App.objects.get(id=app_id, is_active=True)
+                apps.append(app)
+            except App.DoesNotExist:
+                return Response(
+                    {'error': f'Invalid app ID {app_id} or app is not active'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Remove all existing app memberships
+        user.app_memberships.all().delete()
+        
+        # Create new app memberships
+        for app in apps:
+            UserAppMembership.objects.create(user=user, app=app)
+        
+        return Response({
+            'status': 'success',
+            'message': f'Synchronized {len(apps)} app(s) for user',
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'apps': [
+                    {
+                        'id': app.id,
+                        'name': app.name,
+                        'slug': app.slug
+                    }
+                    for app in user.get_accessible_apps()
+                ]
+            }
+        })
+    
+    @action(detail=True, methods=['get'])
+    def apps(self, request, pk=None):
+        """
+        Get all apps assigned to a user.
+        """
+        user = self.get_object()
+        apps = user.get_accessible_apps()
+        
+        return Response({
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'is_superuser': user.is_superuser
+            },
+            'apps': [
+                {
+                    'id': app.id,
+                    'name': app.name,
+                    'slug': app.slug,
+                    'description': app.description
+                }
+                for app in apps
+            ]
+        })
 
 
 # Keep the old AdminUserViewSet for backward compatibility if needed
@@ -604,6 +816,154 @@ class ResendInvitationView(APIView):
         return role_info
 
 
+class AppListView(APIView):
+    """
+    API endpoint to list all apps that the current user has access to.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        """
+        Return list of apps the user has access to.
+        Superusers see all active apps (handled by get_accessible_apps()).
+        """
+        user = request.user
+        apps = user.get_accessible_apps()
+        
+        app_list = [
+            {
+                'id': app.id,
+                'name': app.name,
+                'slug': app.slug,
+                'description': app.description,
+                'is_active': app.is_active
+            }
+            for app in apps
+        ]
+        
+        return Response({
+            'apps': app_list,
+            'count': len(app_list)
+        })
+
+
+class AllAppsListView(APIView):
+    """
+    API endpoint to list ALL apps in the system (admin only).
+    Useful for user management when assigning apps to users.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        """
+        Return list of all apps in the system.
+        Only accessible by superusers or staff members.
+        """
+        if not (request.user.is_superuser or request.user.is_staff):
+            return Response(
+                {'error': 'You do not have permission to view all apps.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        apps = App.objects.all().order_by('name')
+        
+        app_list = [
+            {
+                'id': app.id,
+                'name': app.name,
+                'slug': app.slug,
+                'description': app.description,
+                'is_active': app.is_active,
+                'created_at': app.created_at,
+                'updated_at': app.updated_at
+            }
+            for app in apps
+        ]
+        
+        return Response({
+            'apps': app_list,
+            'count': len(app_list),
+            'active_count': apps.filter(is_active=True).count(),
+            'inactive_count': apps.filter(is_active=False).count()
+        })
+
+
+class SwitchAppView(APIView):
+    """
+    API endpoint to switch/select an app and get a new token with app context.
+    This allows users to switch between apps after login.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request):
+        """
+        Switch to a different app and get a new token with app context.
+        
+        Request body:
+        {
+            "app_id": 1  // or "app_slug": "app-name"
+        }
+        """
+        user = request.user
+        app_id = request.data.get('app_id')
+        app_slug = request.data.get('app_slug')
+        
+        app = None
+        
+        if app_id:
+            try:
+                app = App.objects.get(id=app_id, is_active=True)
+            except App.DoesNotExist:
+                return Response(
+                    {'error': 'Invalid app ID or app is not active.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        elif app_slug:
+            try:
+                app = App.objects.get(slug=app_slug, is_active=True)
+            except App.DoesNotExist:
+                return Response(
+                    {'error': 'Invalid app slug or app is not active.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        else:
+            return Response(
+                {'error': 'Either app_id or app_slug is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if user has access to this app
+        if not user.has_access_to_app(app):
+            return Response(
+                {'error': 'You do not have access to this app.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Generate new token with app context
+        from .tokens import CampaignPlannerTokenObtainPairSerializer
+        
+        # Create a serializer instance to use its get_token method
+        serializer = CampaignPlannerTokenObtainPairSerializer()
+        serializer.user = user
+        serializer.app = app
+        refresh_token = serializer.get_token(user)
+        
+        response_data = {
+            'access': str(refresh_token.access_token),
+            'refresh': str(refresh_token),
+            'app': {
+                'id': app.id,
+                'name': app.name,
+                'slug': app.slug
+            }
+        }
+        
+        response = Response(response_data, status=status.HTTP_200_OK)
+        set_tokens(response)
+        
+        return response
+
+
 class TokenIntrospectionView(APIView):
     """
     Token introspection endpoint for Retail Studio (and other services)
@@ -613,6 +973,7 @@ class TokenIntrospectionView(APIView):
     1. Verify that a token is valid and not expired
     2. Get fresh user data (in case token claims are stale)
     3. Get detailed user permissions and memberships
+    4. Get app context information
     
     Requires a valid JWT token in the Authorization header or cookie.
     """
@@ -634,8 +995,36 @@ class TokenIntrospectionView(APIView):
             - is_active: bool - active flag
             - role: str - the user's primary role
             - memberships: list - detailed membership information
+            - app: dict - current app information (from token)
+            - accessible_apps: list - all apps user has access to
         """
         user = request.user
+        
+        # Get app from token if available
+        app_info = None
+        if hasattr(request, 'auth') and request.auth:
+            app_id = request.auth.get('app_id')
+            if app_id:
+                from .models import App
+                try:
+                    app = App.objects.get(id=app_id)
+                    app_info = {
+                        'id': app.id,
+                        'name': app.name,
+                        'slug': app.slug
+                    }
+                except App.DoesNotExist:
+                    pass
+        
+        # Get all accessible apps
+        accessible_apps = [
+            {
+                'id': app.id,
+                'name': app.name,
+                'slug': app.slug
+            }
+            for app in user.get_accessible_apps()
+        ]
         
         return Response({
             'active': True,
@@ -648,6 +1037,8 @@ class TokenIntrospectionView(APIView):
             'is_active': user.is_active,
             'role': self._get_user_role(user),
             'memberships': self._get_user_memberships(user),
+            'app': app_info,
+            'accessible_apps': accessible_apps,
             'iss': 'campaign-planner',
         })
     
