@@ -176,6 +176,7 @@ class App(models.Model):
     name = models.CharField(max_length=255, unique=True)
     slug = models.SlugField(max_length=100, unique=True, help_text="URL-friendly identifier for the app")
     description = models.TextField(blank=True, null=True)
+    image = models.ImageField(upload_to='apps/', blank=True, null=True, help_text="App icon/image")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

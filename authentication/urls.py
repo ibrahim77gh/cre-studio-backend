@@ -12,9 +12,8 @@ from .views import (
     AcceptInvitationView,
     ResendInvitationView,
     TokenIntrospectionView,
-    AppListView,
-    AllAppsListView,
     SwitchAppView,
+    AppViewSet,
 )
 from rest_framework.routers import DefaultRouter
 
@@ -23,6 +22,7 @@ router = DefaultRouter()
 router.register(r'manage-users', AdminUserViewSet, basename='manage-user')
 router.register(r'user-management', UserManagementViewSet, basename='user-management')
 router.register(r'profile', UserProfileViewSet, basename='profile')
+router.register(r'apps-manage', AppViewSet, basename='app')
 
 urlpatterns = [
     re_path(
@@ -38,8 +38,6 @@ urlpatterns = [
     path('user-stats/', UserStatsView.as_view(), name='user-stats'),
     path('accept-invitation/<str:token>/', AcceptInvitationView.as_view(), name='accept-invitation'),
     path('resend-invitation/<int:user_id>/', ResendInvitationView.as_view(), name='resend-invitation'),
-    path('apps/', AppListView.as_view(), name='app-list'),
-    path('apps/all/', AllAppsListView.as_view(), name='all-apps-list'),
     path('switch-app/', SwitchAppView.as_view(), name='switch-app'),
     path('', include(router.urls)),
 ]

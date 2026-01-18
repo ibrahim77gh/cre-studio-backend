@@ -618,3 +618,85 @@ class UserStatsSerializer(serializers.Serializer):
     active_users = serializers.IntegerField()
     admin_users = serializers.IntegerField()
     tenants = serializers.IntegerField()
+
+
+class AppSerializer(serializers.ModelSerializer):
+    """
+    Serializer for App model with full CRUD support.
+    """
+    user_count = serializers.SerializerMethodField(read_only=True, help_text="Number of users assigned to this app")
+    
+    class Meta:
+        model = App
+        fields = [
+            'id',
+            'name',
+            'slug',
+            'description',
+            'image',
+            'is_active',
+            'created_at',
+            'updated_at',
+            'user_count'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def validate_slug(self, value):
+        """
+        Validate slug is unique and URL-friendly.
+        """
+        # Exclude current instance if updating
+        queryset = App.objects.filter(slug=value)
+        if self.instance:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        
+        if queryset.exists():
+            raise serializers.ValidationError("An app with this slug already exists.")
+        
+        # Ensure slug is URL-friendly (already handled by SlugField, but add custom validation if needed)
+        if not value.replace('-', '').replace('_', '').isalnum():
+            raise serializers.ValidationError("Slug can only contain letters, numbers, hyphens, and underscores.")
+        
+        return value
+    
+    def validate_name(self, value):
+        """
+        Validate name is unique.
+        """
+        queryset = App.objects.filter(name=value)
+        if self.instance:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        
+        if queryset.exists():
+            raise serializers.ValidationError("An app with this name already exists.")
+        
+        return value
+    
+    def get_user_count(self, obj):
+        """Get the number of users assigned to this app"""
+        return obj.memberships.count()
+
+
+class AppListSerializer(serializers.ModelSerializer):
+    """
+    Simplified serializer for listing apps (read-only).
+    """
+    user_count = serializers.SerializerMethodField(read_only=True)
+    
+    class Meta:
+        model = App
+        fields = [
+            'id',
+            'name',
+            'slug',
+            'description',
+            'image',
+            'is_active',
+            'created_at',
+            'updated_at',
+            'user_count'
+        ]
+    
+    def get_user_count(self, obj):
+        """Get the number of users assigned to this app"""
+        return obj.memberships.count()

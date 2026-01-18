@@ -52,7 +52,7 @@ class AppAdmin(admin.ModelAdmin):
     
     fieldsets = (
         (None, {
-            'fields': ('name', 'slug', 'description', 'is_active')
+            'fields': ('name', 'slug', 'description', 'image', 'is_active')
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),
