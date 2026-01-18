@@ -123,3 +123,45 @@ class CanCreateUserWithRole(permissions.BasePermission):
                         return True
                         
         return False
+
+
+class CanManageApps(permissions.BasePermission):
+    """
+    Permission class for App CRUD operations.
+    
+    Rules:
+    - Read operations (list, retrieve): All authenticated users
+    - Write operations (create, update, delete): Only superusers
+    """
+    
+    def has_permission(self, request, view):
+        """
+        Check if user has permission based on the action.
+        """
+        # User must be authenticated
+        if not request.user.is_authenticated:
+            return False
+        
+        # Read operations (list, retrieve) - allow all authenticated users
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        
+        # Write operations (create, update, delete) - only superusers
+        return request.user.is_superuser
+    
+    def has_object_permission(self, request, view, obj):
+        """
+        Check if user has permission for a specific app object.
+        Read operations allowed for authenticated users,
+        write operations only for superusers.
+        """
+        # User must be authenticated
+        if not request.user.is_authenticated:
+            return False
+        
+        # Read operations - allow all authenticated users
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        
+        # Write operations - only superusers
+        return request.user.is_superuser

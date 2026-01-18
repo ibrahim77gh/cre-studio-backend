@@ -16,11 +16,13 @@ from .serializers import (
     UserManagementUpdateSerializer,
     UserManagementListSerializer,
     UserProfileUpdateSerializer,
-    UserStatsSerializer
+    UserStatsSerializer,
+    AppSerializer,
+    AppListSerializer
 )
 from .tokens import CampaignPlannerTokenObtainPairSerializer
 from .models import CustomUser, App
-from .permissions import CanManageUsers
+from .permissions import CanManageUsers, CanManageApps
 from property_app.models import PropertyUserRole, UserPropertyMembership
 
 
@@ -567,6 +569,142 @@ class UserManagementViewSet(viewsets.ModelViewSet):
                 }
                 for app in apps
             ]
+        })
+
+
+class AppViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for CRUD operations on App model.
+    
+    Provides full CRUD functionality for managing apps in the system.
+    
+    Permissions:
+    - Read operations (list, retrieve): All authenticated users
+    - Write operations (create, update, delete): Only superusers
+    
+    Operations:
+    - List: GET /api/auth/apps-manage/
+    - Create: POST /api/auth/apps-manage/ (superuser only)
+    - Retrieve: GET /api/auth/apps-manage/{id}/
+    - Update: PUT/PATCH /api/auth/apps-manage/{id}/ (superuser only)
+    - Delete: DELETE /api/auth/apps-manage/{id}/ (superuser only)
+    """
+    queryset = App.objects.all().order_by('name')
+    permission_classes = [CanManageApps]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['name', 'slug', 'description']
+    ordering_fields = ['name', 'slug', 'is_active', 'created_at', 'updated_at']
+    ordering = ['name']
+    
+    def get_serializer_class(self):
+        """
+        Use AppListSerializer for list action, AppSerializer for other actions.
+        """
+        if self.action == 'list':
+            return AppListSerializer
+        return AppSerializer
+    
+    @action(detail=False, methods=['get'])
+    def my_apps(self, request):
+        """
+        Get all apps that the current user has access to.
+        
+        GET /api/auth/apps-manage/my_apps/
+        
+        This is a filtered list based on user's app memberships.
+        Superusers see all active apps.
+        """
+        user = request.user
+        apps = user.get_accessible_apps()
+        
+        serializer = self.get_serializer(apps, many=True)
+        return Response({
+            'apps': serializer.data,
+            'count': len(serializer.data)
+        })
+    
+    @action(detail=True, methods=['get'])
+    def users(self, request, pk=None):
+        """
+        Get all users assigned to a specific app.
+        
+        GET /api/auth/apps-manage/{id}/users/
+        """
+        app = self.get_object()
+        users = CustomUser.objects.filter(app_memberships__app=app).distinct()
+        
+        user_list = [
+            {
+                'id': user.id,
+                'email': user.email,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'is_active': user.is_active,
+                'is_superuser': user.is_superuser
+            }
+            for user in users
+        ]
+        
+        return Response({
+            'app': {
+                'id': app.id,
+                'name': app.name,
+                'slug': app.slug,
+                'image': app.image.url if app.image else None
+            },
+            'users': user_list,
+            'count': len(user_list)
+        })
+    
+    @action(detail=True, methods=['post'])
+    def activate(self, request, pk=None):
+        """
+        Activate an app.
+        
+        POST /api/auth/apps-manage/{id}/activate/
+        """
+        app = self.get_object()
+        if app.is_active:
+            return Response(
+                {'error': 'App is already active'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        app.is_active = True
+        app.save()
+        
+        serializer = self.get_serializer(app)
+        return Response({
+            'status': 'success',
+            'message': 'App activated successfully',
+            'app': serializer.data
+        })
+    
+    @action(detail=True, methods=['post'])
+    def deactivate(self, request, pk=None):
+        """
+        Deactivate an app.
+        
+        POST /api/auth/apps-manage/{id}/deactivate/
+        
+        Note: This prevents new user assignments to the app,
+        but existing users with access will retain their access.
+        """
+        app = self.get_object()
+        if not app.is_active:
+            return Response(
+                {'error': 'App is already inactive'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        app.is_active = False
+        app.save()
+        
+        serializer = self.get_serializer(app)
+        return Response({
+            'status': 'success',
+            'message': 'App deactivated successfully',
+            'app': serializer.data
         })
 
 
