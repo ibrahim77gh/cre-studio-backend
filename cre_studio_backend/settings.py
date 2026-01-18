@@ -71,8 +71,6 @@ MIDDLEWARE = [
 
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-# CORS_ALLOW_ALL_ORIGINS will be set conditionally below
-
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
 ]
@@ -250,7 +248,7 @@ if DEBUG:
 else:
     CORS_ALLOW_ALL_ORIGINS = False
     CORS_ALLOWED_ORIGIN_REGEXES = [
-        r"^https:\/\/.*\.retailstudio\.ai$",
+        r"^https:\/\/(.*\.)?retailstudio\.ai$",
     ]
     
 # Additional CORS settings for media files
