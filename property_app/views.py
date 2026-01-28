@@ -11,23 +11,100 @@ from property_app.serializers import (
     PlatformSerializer,
     PlatformBudgetSerializer,
     PromptConfigurationSerializer,
-    PromptConfigurationListSerializer
+    PromptConfigurationListSerializer,
 )
 from .models import (
-    Campaign, Property, PropertyGroup, UserPropertyMembership,
-    PropertyUserRole, ClientNotification, CreativeAsset, CampaignComment,
-    CampaignCommentAttachment, CampaignBudget, Platform, PlatformBudget, PromptConfiguration
+    Campaign,
+    Property,
+    PropertyGroup,
+    UserPropertyMembership,
+    PropertyUserRole,
+    ClientNotification,
+    CreativeAsset,
+    CampaignComment,
+    CampaignCommentAttachment,
+    CampaignBudget,
+    Platform,
+    PlatformBudget,
+    PromptConfiguration,
 )
-from rest_framework import viewsets
+from rest_framework import status, viewsets
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-from rest_framework.decorators import action
-from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
-from rest_framework import status
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from django.core.mail import send_mail
+from django.conf import settings
 from .utils import send_comment_notifications
 from .tasks import process_campaign_ai_content
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def contact_us(request):
+    """
+    Simple Contact Us endpoint for the public site.
+
+    Sends an email to support@retailstudio.ai with the submitted details.
+    """
+    name = (request.data.get("name") or "").strip()
+    email = (request.data.get("email") or "").strip()
+    subject = (request.data.get("subject") or "Contact form message").strip()
+    message = (request.data.get("message") or "").strip()
+
+    if not email or not message:
+        return Response(
+            {
+                "detail": "Both 'email' and 'message' fields are required.",
+                "errors": {
+                    "email": ["This field is required."] if not email else [],
+                    "message": ["This field is required."] if not message else [],
+                },
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    email_subject = f"[Contact] {subject}" if subject else "[Contact] New message"
+
+    body_lines = [
+        f"Name: {name or 'N/A'}",
+        f"Email: {email}",
+        "",
+        "Message:",
+        message,
+    ]
+    email_body = "\n".join(body_lines)
+
+    from_email = (
+        getattr(settings, "DEFAULT_FROM_EMAIL", None)
+        or getattr(settings, "EMAIL_HOST_USER", None)
+        or None
+    )
+
+    try:
+        send_mail(
+            subject=email_subject,
+            message=email_body,
+            from_email=from_email,
+            recipient_list=["support@retailstudio.ai"],
+            fail_silently=False,
+        )
+    except Exception as exc:
+        # For now, just print the underlying error so it shows in the server logs/terminal
+        print("Contact form email error:", repr(exc))
+        return Response(
+            {"detail": "Failed to send your message. Please try again later."},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return Response(
+        {
+            "detail": "Your message has been sent successfully.",
+        },
+        status=status.HTTP_200_OK,
+    )
 
 
 class PropertyViewSet(viewsets.ModelViewSet):
